@@ -1,0 +1,214 @@
+{
+  "records": [
+    {
+      "request_id": "cmpl-VvpC9ytqQQhlXVykLBaysWff-01a16279-f311-74c2-b363-4e1662ac5154",
+      "prompt_tokens": 32,
+      "requested_output_tokens": 16,
+      "client_ttft_ms": 291.22739005833864,
+      "client_total_ms": 1097.9664199985564,
+      "output_text": " token token token token token token token token token token token token token token token token",
+      "repeat": 0
+    },
+    {
+      "request_id": "cmpl-awiORsU4qvYSIg2awuyiBZfY-01a16279-f75a-7206-aa6f-c494eb844924",
+      "prompt_tokens": 32,
+      "requested_output_tokens": 16,
+      "client_ttft_ms": 293.0091400630772,
+      "client_total_ms": 1087.9099499434233,
+      "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+      "repeat": 1
+    },
+    {
+      "request_id": "cmpl-wbrRpGdB2O7Vm2CLHYJ1h3l6-01a16279-fb9a-7144-8715-f8cc009799f8",
+      "prompt_tokens": 32,
+      "requested_output_tokens": 16,
+      "client_ttft_ms": 277.7067800052464,
+      "client_total_ms": 1060.958239948377,
+      "output_text": " model model model model model model model model model model model model model model model model",
+      "repeat": 2
+    },
+    {
+      "request_id": "cmpl-aKNXwd3N86cyoM8JxxVloCkY-01a16279-ffbf-7740-ad9f-e605163b168c",
+      "prompt_tokens": 32,
+      "requested_output_tokens": 16,
+      "client_ttft_ms": 281.7021699156612,
+      "client_total_ms": 1072.427799925208,
+      "output_text": "\nhello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+      "repeat": 3
+    },
+    {
+      "request_id": "cmpl-5A6z4aS7lz3UXKLURGAn6wjD-01a1627a-03f0-710a-8d4c-2891c56aefcc",
+      "prompt_tokens": 32,
+      "requested_output_tokens": 16,
+      "client_ttft_ms": 283.4472400136292,
+      "client_total_ms": 1079.8792098648846,
+      "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+      "repeat": 4
+    },
+    {
+      "request_id": "cmpl-NpFu9kt4IzrOw7zOuEmrHqK2-01a1627a-168e-7244-8d08-3ca1554af10c",
+      "prompt_tokens": 32,
+      "requested_output_tokens": 64,
+      "client_ttft_ms": 284.0114999562502,
+      "client_total_ms": 3736.7215699050575,
+      "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+      "repeat": 0
+    },
+    {
+      "request_id": "cmpl-ZWVRys78k707oCZPnzsVXG38-01a1627a-2527-718f-85cf-fd293bd2fd8b",
+      "prompt_tokens": 32,
+      "requested_output_tokens": 64,
+      "client_ttft_ms": 283.67027011699975,
+      "client_total_ms": 3799.9277401249856,
+      "output_text": " model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model",
+      "repeat": 1
+    },
+    {
+      "request_id": "cmpl-zFItT3oQLpTYDdYzoeeifwUf-01a1627a-33ff-760f-96ba-3436ee4114d4",
+      "prompt_tokens": 32,
+      "requested_output_tokens": 64,
+      "client_ttft_ms": 287.9538999404758,
+      "client_total_ms": 3725.5292700137943,
+      "output_text": "\nhello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+      "repeat": 2
+    },
+    {
+      "request_id": "cmpl-oEtNIwzrd6AY8M347ZBmVSNI-01a1627a-428d-7532-8a96-612b250c3378",
+      "prompt_tokens": 32,
+      "requested_output_tokens": 64,
+      "client_ttft_ms": 286.02020000107586,
+      "client_total_ms": 3808.4515801165253,
+      "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+      "repeat": 3
+    },
+    {
+      "request_id": "cmpl-I7PjRYPfB7vrPE6QVn8uZ88L-01a1627a-516d-7053-bb32-5af6d20ef59e",
+      "prompt_tokens": 32,
+      "requested_output_tokens": 64,
+      "client_ttft_ms": 287.1719200629741,
+      "client_total_ms": 3721.2676000781357,
+      "output_text": " token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token",
+      "repeat": 4
+    },
+    {
+      "request_id": "cmpl-SyaybcGqrBL6Jw3gbz1iyHN2-01a1627a-8029-751b-bc60-778be83a587d",
+      "prompt_tokens": 512,
+      "requested_output_tokens": 16,
+      "client_ttft_ms": 3580.811809981242,
+      "client_total_ms": 4388.815000187606,
+      "output_text": " model model model model model model model model model model model model model model model model",
+      "repeat": 0
+    },
+    {
+      "request_id": "cmpl-lY6X3OzanVQCDtwkzE7wJ6sK-01a1627a-914e-7176-88fd-a961ea6906bb",
+      "prompt_tokens": 512,
+      "requested_output_tokens": 16,
+      "client_ttft_ms": 3607.1282599586993,
+      "client_total_ms": 4410.071829799563,
+      "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+      "repeat": 1
+    },
+    {
+      "request_id": "cmpl-iZyTtuWWAJmcaGUKlX9JCJec-01a1627a-a288-7000-86c2-afa8d1c1e882",
+      "prompt_tokens": 512,
+      "requested_output_tokens": 16,
+      "client_ttft_ms": 3607.74997016415,
+      "client_total_ms": 4414.069110061973,
+      "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+      "repeat": 2
+    },
+    {
+      "request_id": "cmpl-ScniGKZW99Kmvqi5JTMs6lhH-01a1627a-b3c6-708c-bac2-0f933894e2fe",
+      "prompt_tokens": 512,
+      "requested_output_tokens": 16,
+      "client_ttft_ms": 3567.573369946331,
+      "client_total_ms": 4369.151330087334,
+      "output_text": " token token token token token token token token token token token token token token token token",
+      "repeat": 3
+    },
+    {
+      "request_id": "cmpl-MvYSMLypaNOCZJ3bJk21iSAV-01a1627a-c4d7-75d1-b9fc-8860bd6792b2",
+      "prompt_tokens": 512,
+      "requested_output_tokens": 16,
+      "client_ttft_ms": 3581.5456099808216,
+      "client_total_ms": 4388.53200012818,
+      "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+      "repeat": 4
+    },
+    {
+      "request_id": "cmpl-B9v4WRa8fVDISaCLbBnnTW3A-01a1627a-f121-700c-b213-8ea1408e921b",
+      "prompt_tokens": 512,
+      "requested_output_tokens": 64,
+      "client_ttft_ms": 3579.263749998063,
+      "client_total_ms": 7012.011900078505,
+      "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+      "repeat": 0
+    },
+    {
+      "request_id": "cmpl-prbpcPuKMMIb4ZTVehPVSSvz-01a1627b-0c85-706d-a874-6503f7f53fb1",
+      "prompt_tokens": 512,
+      "requested_output_tokens": 64,
+      "client_ttft_ms": 3560.562370112166,
+      "client_total_ms": 7004.3904799968,
+      "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+      "repeat": 1
+    },
+    {
+      "request_id": "cmpl-h2Sx5urKrBTCwO0ziNgXN49R-01a1627b-27e2-77fb-8ab5-67464deec061",
+      "prompt_tokens": 512,
+      "requested_output_tokens": 64,
+      "client_ttft_ms": 3534.2830300796777,
+      "client_total_ms": 7097.7634999435395,
+      "output_text": " token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token",
+      "repeat": 2
+    },
+    {
+      "request_id": "cmpl-v0705GiPnXvtFEU3IPxlbrQO-01a1627b-439c-725f-a181-21dafde24517",
+      "prompt_tokens": 512,
+      "requested_output_tokens": 64,
+      "client_ttft_ms": 3636.9656398892403,
+      "client_total_ms": 7106.453549815342,
+      "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello",
+      "repeat": 3
+    },
+    {
+      "request_id": "cmpl-tzqKbcG1v41h1OCDxhUiO6wu-01a1627b-5f5f-742c-ba3e-e59039b4d81e",
+      "prompt_tokens": 512,
+      "requested_output_tokens": 64,
+      "client_ttft_ms": 3624.4842999149114,
+      "client_total_ms": 7088.605470024049,
+      "output_text": " model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model",
+      "repeat": 4
+    }
+  ],
+  "client_summary": [
+    {
+      "prompt_tokens": 32,
+      "output_tokens": 16,
+      "repeats": 5,
+      "client_ttft_ms_median": 283.447,
+      "client_total_ms_median": 1079.879
+    },
+    {
+      "prompt_tokens": 32,
+      "output_tokens": 64,
+      "repeats": 5,
+      "client_ttft_ms_median": 286.02,
+      "client_total_ms_median": 3736.722
+    },
+    {
+      "prompt_tokens": 512,
+      "output_tokens": 16,
+      "repeats": 5,
+      "client_ttft_ms_median": 3581.546,
+      "client_total_ms_median": 4388.815
+    },
+    {
+      "prompt_tokens": 512,
+      "output_tokens": 64,
+      "repeats": 5,
+      "client_ttft_ms_median": 3579.264,
+      "client_total_ms_median": 7088.605
+    }
+  ]
+}

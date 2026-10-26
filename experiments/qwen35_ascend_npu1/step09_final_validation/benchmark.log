@@ -1,0 +1,54 @@
+warmup input=32 output=16 total_ms=883.386
+{"request_id": "cmpl-VOlmoHyNL5TXVlUJZSZkkQb4-01a1632a-b320-7645-9cad-76ed9b527195", "prompt_tokens": 32, "requested_output_tokens": 16, "client_ttft_ms": 84.90970986895263, "client_total_ms": 854.1507699992508, "output_text": " token token token token token token token token token token token token token token token token", "repeat": 0}
+{"request_id": "cmpl-sOoBGxckF138omgtZKU0zE6t-01a1632a-b676-7363-af24-04ecfc35d2e0", "prompt_tokens": 32, "requested_output_tokens": 16, "client_ttft_ms": 84.03720986098051, "client_total_ms": 849.770599976182, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 1}
+{"request_id": "cmpl-1DSYwd1cNSqrRZ9TsaQOaJmR-01a1632a-b9c8-715b-8e32-196bd11bbc4e", "prompt_tokens": 32, "requested_output_tokens": 16, "client_ttft_ms": 84.09873000346124, "client_total_ms": 852.8371299616992, "output_text": " model model model model model model model model model model model model model model model model", "repeat": 2}
+{"request_id": "cmpl-l7zQjByapUWUrszBXpXtaBIj-01a1632a-bd1d-7254-9c5d-98a63f461f3f", "prompt_tokens": 32, "requested_output_tokens": 16, "client_ttft_ms": 84.47152003645897, "client_total_ms": 853.0080900527537, "output_text": "\nhello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 3}
+{"request_id": "cmpl-ypjRBOQEjBwTIAaJRNhtWgOO-01a1632a-c072-70e2-aecd-18f9ca1b501a", "prompt_tokens": 32, "requested_output_tokens": 16, "client_ttft_ms": 83.5848399437964, "client_total_ms": 856.1271098442376, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 4}
+warmup input=32 output=64 total_ms=3395.855
+{"request_id": "cmpl-jdGacNayBXr30dW4HbG0qJZd-01a1632a-d10e-717d-bca1-bb5bbd9d7aa8", "prompt_tokens": 32, "requested_output_tokens": 64, "client_ttft_ms": 87.3595701996237, "client_total_ms": 3517.6986700389534, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 0}
+{"request_id": "cmpl-7Oh2WVJmPJrfjRfhCec8JaOx-01a1632a-decc-74f9-bab1-1b78e6c2a1bf", "prompt_tokens": 32, "requested_output_tokens": 64, "client_ttft_ms": 88.24744983576238, "client_total_ms": 3536.498089786619, "output_text": " model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model", "repeat": 1}
+{"request_id": "cmpl-NwXRK7Zq2Lkzrg1kJnMFtaew-01a1632a-ec9c-7704-a37b-387b8aecfc07", "prompt_tokens": 32, "requested_output_tokens": 64, "client_ttft_ms": 88.22865993715823, "client_total_ms": 3503.017419949174, "output_text": "\nhello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 2}
+{"request_id": "cmpl-Hl94ZF4xtG23OqxsNRCrv4lP-01a1632a-fa4c-733c-a77e-40df0d693a8a", "prompt_tokens": 32, "requested_output_tokens": 64, "client_ttft_ms": 87.33172994107008, "client_total_ms": 3464.4073001109064, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 3}
+{"request_id": "cmpl-3n1jQbxFJvRs76KJMfDDhcRc-01a1632b-07d4-775d-b479-c458b86bba18", "prompt_tokens": 32, "requested_output_tokens": 64, "client_ttft_ms": 86.84106986038387, "client_total_ms": 3460.5710399337113, "output_text": " token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token", "repeat": 4}
+warmup input=512 output=16 total_ms=1239.956
+{"request_id": "cmpl-vw9210KQX5oDDZ16iixhVQwi-01a1632b-1a31-74c4-b494-b3c3e36a1f8a", "prompt_tokens": 512, "requested_output_tokens": 16, "client_ttft_ms": 416.3787900470197, "client_total_ms": 1228.3578200731426, "output_text": " model model model model model model model model model model model model model model model model", "repeat": 0}
+{"request_id": "cmpl-DbA6QLsqdNU6EP2nUnX6rY8W-01a1632b-1efd-74e9-a6eb-2daaea48c810", "prompt_tokens": 512, "requested_output_tokens": 16, "client_ttft_ms": 415.37068015895784, "client_total_ms": 1311.7348400410265, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 1}
+{"request_id": "cmpl-cmLA3rjukSefbsA4I7gUXOvt-01a1632b-241d-7403-8575-2ecff8a681e9", "prompt_tokens": 512, "requested_output_tokens": 16, "client_ttft_ms": 415.07184994407, "client_total_ms": 1218.6971600167453, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 2}
+{"request_id": "cmpl-OvebG29ql99T7GKNfClSVE2h-01a1632b-28e0-7408-9deb-b5fa1059ac04", "prompt_tokens": 512, "requested_output_tokens": 16, "client_ttft_ms": 412.3323098756373, "client_total_ms": 1220.7197898533195, "output_text": " token token token token token token token token token token token token token token token token", "repeat": 3}
+{"request_id": "cmpl-x7R7BuTYwFNucHmqudyZdSzm-01a1632b-2da4-7361-9f28-d5e24e235a58", "prompt_tokens": 512, "requested_output_tokens": 16, "client_ttft_ms": 412.97413990832865, "client_total_ms": 1217.9181799292564, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 4}
+warmup input=512 output=64 total_ms=3792.608
+{"request_id": "cmpl-YuOVUG1TKImWxVcEXWwbKCyk-01a1632b-4137-72c3-acac-fcee8139588c", "prompt_tokens": 512, "requested_output_tokens": 64, "client_ttft_ms": 413.3765900041908, "client_total_ms": 3810.368009842932, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 0}
+{"request_id": "cmpl-tsjoI7NWREAJquTbiEt4Cerz-01a1632b-501a-7006-91f5-46b73f718ee9", "prompt_tokens": 512, "requested_output_tokens": 64, "client_ttft_ms": 412.22232999280095, "client_total_ms": 3780.144250020385, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 1}
+{"request_id": "cmpl-Fcb2HFJwwdGPoj14XCEx5nLd-01a1632b-5ede-751d-82a3-9c731dc723c8", "prompt_tokens": 512, "requested_output_tokens": 64, "client_ttft_ms": 409.51109980233014, "client_total_ms": 3752.2961599752307, "output_text": " token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token", "repeat": 2}
+{"request_id": "cmpl-TxzBKEvcheSvtVfafctV11hn-01a1632b-6d86-75ee-a8fd-0a7085338117", "prompt_tokens": 512, "requested_output_tokens": 64, "client_ttft_ms": 413.007739931345, "client_total_ms": 3746.9791499897838, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 3}
+{"request_id": "cmpl-870cNDOHZ3pG813BvBGmB5H3-01a1632b-7c29-7768-8cd6-7451d5a8d2a3", "prompt_tokens": 512, "requested_output_tokens": 64, "client_ttft_ms": 412.2277698479593, "client_total_ms": 3767.2862699255347, "output_text": " model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model", "repeat": 4}
+[
+  {
+    "prompt_tokens": 32,
+    "output_tokens": 16,
+    "repeats": 5,
+    "client_ttft_ms_median": 84.099,
+    "client_total_ms_median": 853.008
+  },
+  {
+    "prompt_tokens": 32,
+    "output_tokens": 64,
+    "repeats": 5,
+    "client_ttft_ms_median": 87.36,
+    "client_total_ms_median": 3503.017
+  },
+  {
+    "prompt_tokens": 512,
+    "output_tokens": 16,
+    "repeats": 5,
+    "client_ttft_ms_median": 415.072,
+    "client_total_ms_median": 1220.72
+  },
+  {
+    "prompt_tokens": 512,
+    "output_tokens": 64,
+    "repeats": 5,
+    "client_ttft_ms_median": 412.228,
+    "client_total_ms_median": 3767.286
+  }
+]

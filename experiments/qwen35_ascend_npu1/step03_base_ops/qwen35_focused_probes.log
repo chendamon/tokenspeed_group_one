@@ -1,0 +1,46 @@
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66: UserWarning: Permission mismatch: The owner of /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/lib/libop_plugin_atb.so does not match.
+  warnings.warn(f"Permission mismatch: The owner of {path} does not match.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+ENV {"ASCEND_RT_VISIBLE_DEVICES": "1", "ASCEND_VISIBLE_DEVICES": "1", "device_count": 1, "logical_device": "npu:0", "device_name": "Ascend910_9362", "torch": "2.9.0+cpu", "torch_npu": "2.9.0"}
+PASS ascend_swiglu: {'shapes': [[1, 7168], [17, 7168], [128, 7168]], 'dtype': 'bfloat16', 'atol': 0.03, 'rtol': 0.02, 'max_abs': 0.0, 'max_rel': 0.0}
+FAIL qk_rmsnorm_qwen35_shape: AssertionError: The values for attribute 'dtype' do not match: torch.float32 != torch.bfloat16.
+Traceback (most recent call last):
+  File "<stdin>", line 13, in record
+  File "<stdin>", line 74, in test_qk
+  File "/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch/testing/_comparison.py", line 1589, in assert_close
+    raise error_metas[0].to_error(msg)
+AssertionError: The values for attribute 'dtype' do not match: torch.float32 != torch.bfloat16.
+PASS triton_sigmoid_mul_attention_gate: {'x_shape': [17, 2048], 'gate_shape': [17, 8, 256], 'gate_stride': [4096, 512, 1], 'dtype': 'bfloat16', 'max_abs': 0.0, 'max_rel': 0.0}
+FAIL causal_conv1d_decode_state_update: ValueError: Number of parameters exceeds the number of available axes.
+Traceback (most recent call last):
+  File "<stdin>", line 13, in record
+  File "<stdin>", line 95, in test_causal_conv
+  File "/home/u2601112013/tokenspeed_group_one/python/tokenspeed/runtime/layers/attention/linear/causal_conv1d.py", line 28, in <module>
+    from tokenspeed_kernel.ops.attention.gdn.triton import (
+  File "/home/u2601112013/tokenspeed_group_one/tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py", line 905, in <module>
+    import tokenspeed_kernel.ops.attention.gdn.triton  # noqa: E402,F401
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: Number of parameters exceeds the number of available axes.
+/home/u2601112013/tokenspeed_group_one/python/tokenspeed/runtime/layers/attention/linear/layernorm_gated.py:147: UserWarning: Cannot create tensor with interal format while allow_internel_format=False, tensor will be created with base format. (Triggered internally at build/CMakeFiles/torch_npu.dir/compiler_depend.ts:338.)
+  out = torch.empty_like(
+FAIL gated_rmsnorm_gdn: RuntimeError: PyTorch was compiled without CUDA support
+Traceback (most recent call last):
+  File "<stdin>", line 13, in record
+  File "<stdin>", line 124, in test_gated_rmsnorm
+  File "/home/u2601112013/tokenspeed_group_one/python/tokenspeed/runtime/layers/attention/linear/layernorm_gated.py", line 159, in rmsnorm_fn
+    with torch.cuda.device(x.device.index):
+  File "/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch/cuda/__init__.py", line 533, in __enter__
+    self.prev_idx = torch.cuda._exchange_device(self.idx)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: PyTorch was compiled without CUDA support
+PASS state_page_allocation_isolation: {'conv_state': [2, 6144, 3], 'conv_dtype': 'torch.bfloat16', 'ssm_state': [2, 16, 128, 128], 'ssm_dtype': 'torch.float32', 'page1_unchanged': True}
+PASS gdn_input_projection_linear: {'input': [17, 1024], 'weight': [8224, 1024], 'output': [17, 8224], 'dtype': 'bfloat16', 'subset_error': {'max_abs': 0.0, 'max_rel': 0.0}}
+RESULT_JSON={"passed": ["ascend_swiglu", "triton_sigmoid_mul_attention_gate", "state_page_allocation_isolation", "gdn_input_projection_linear"], "failed": ["qk_rmsnorm_qwen35_shape", "causal_conv1d_decode_state_update", "gated_rmsnorm_gdn"], "results": {"ascend_swiglu": {"status": "PASS", "shapes": [[1, 7168], [17, 7168], [128, 7168]], "dtype": "bfloat16", "atol": 0.03, "rtol": 0.02, "max_abs": 0.0, "max_rel": 0.0}, "qk_rmsnorm_qwen35_shape": {"status": "FAIL", "exception": "AssertionError", "message": "The values for attribute 'dtype' do not match: torch.float32 != torch.bfloat16."}, "triton_sigmoid_mul_attention_gate": {"status": "PASS", "x_shape": [17, 2048], "gate_shape": [17, 8, 256], "gate_stride": [4096, 512, 1], "dtype": "bfloat16", "max_abs": 0.0, "max_rel": 0.0}, "causal_conv1d_decode_state_update": {"status": "FAIL", "exception": "ValueError", "message": "Number of parameters exceeds the number of available axes."}, "gated_rmsnorm_gdn": {"status": "FAIL", "exception": "RuntimeError", "message": "PyTorch was compiled without CUDA support"}, "state_page_allocation_isolation": {"status": "PASS", "conv_state": [2, 6144, 3], "conv_dtype": "torch.bfloat16", "ssm_state": [2, 16, 128, 128], "ssm_dtype": "torch.float32", "page1_unchanged": true}, "gdn_input_projection_linear": {"status": "PASS", "input": [17, 1024], "weight": [8224, 1024], "output": [17, 8224], "dtype": "bfloat16", "subset_error": {"max_abs": 0.0, "max_rel": 0.0}}}, "peak_memory_bytes": 19914752}
+focused_probe_exit=0

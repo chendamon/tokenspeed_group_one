@@ -1,0 +1,7 @@
+repeat_equal= True
+different_prompt_differs= True
+repeat_a= ' Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is'
+different= ' Berlin.\nThe following is a list of the most recent changes to the following:\nThe following is a list of the most recent changes to the following:'
+repeat_b= ' Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is'
+usage_a= {'prompt_tokens': 5, 'completion_tokens': 32, 'total_tokens': 37, 'prompt_tokens_details': {'cached_tokens': 0}}
+usage_b= {'prompt_tokens': 5, 'completion_tokens': 32, 'total_tokens': 37, 'prompt_tokens_details': {'cached_tokens': 0}}

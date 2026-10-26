@@ -156,7 +156,8 @@ def rmsnorm_fn(
     num_warps = min(max(BLOCK_N // 256, 1), 8)
     block_m = ROWS_PER_PROGRAM if num_warps == 1 else 1
     grid = (triton.cdiv(M, block_m), ngroups)
-    with torch.cuda.device(x.device.index):
+    device_module = torch.get_device_module(x.device)
+    with device_module.device(x.device.index):
         _rms_norm_fwd_kernel[grid](
             x,
             out,

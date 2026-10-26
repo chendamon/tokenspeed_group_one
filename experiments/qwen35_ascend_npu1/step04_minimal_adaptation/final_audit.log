@@ -1,0 +1,24 @@
+=== diff check ===
+ .../layers/attention/linear/layernorm_gated.py     |  3 +-
+ python/tokenspeed/runtime/layers/layernorm.py      |  8 ++-
+ python/tokenspeed/runtime/models/qwen3_5.py        |  3 +-
+ test/runtime/layers/test_npu_attention_backend.py  | 65 +++++++++++++++++++++-
+ 4 files changed, 75 insertions(+), 4 deletions(-)
+ M python/tokenspeed/runtime/layers/attention/linear/layernorm_gated.py
+ M python/tokenspeed/runtime/layers/layernorm.py
+ M python/tokenspeed/runtime/models/qwen3_5.py
+ M test/runtime/layers/test_npu_attention_backend.py
+?? .runtime/
+?? experiments/
+=== step04 artifacts ===
+final_audit.log 606 bytes
+final_regression.log 2036 bytes
+real_model_prefill_attempt4.json 125 bytes
+real_model_startup_attempt1.log 18501 bytes
+real_model_startup_attempt2_text_only.log 24679 bytes
+real_model_startup_attempt3_gemma_fixed.log 26057 bytes
+real_model_startup_attempt4_eager.log 221 bytes
+real_model_startup_attempt5_eager_worker.log 25096 bytes
+targeted_compat_smoke.log 2022 bytes
+test_npu_attention_backend.log 2088 bytes
+=== lingering project processes ===

@@ -62,11 +62,12 @@ def _paged_rows(
     return pages[:length]
 
 
-def test_mha_prefill() -> None:
+@pytest.mark.parametrize("head_dim", [64, 256])
+def test_mha_prefill(head_dim: int) -> None:
     lengths = [3, 5]
     cumulative = torch.tensor([0, 3, 8], dtype=torch.int32, device="npu")
-    q = torch.randn(8, 4, 64, dtype=torch.bfloat16, device="npu")
-    k = torch.randn(8, 2, 64, dtype=torch.bfloat16, device="npu")
+    q = torch.randn(8, 4, head_dim, dtype=torch.bfloat16, device="npu")
+    k = torch.randn(8, 2, head_dim, dtype=torch.bfloat16, device="npu")
     v = torch.randn_like(k)
 
     output = mha_prefill(q, k, v, cumulative, [0, 3, 8], 5)

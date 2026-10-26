@@ -61,6 +61,44 @@ def _check_options(
         raise NotImplementedError("Ascend MHA does not return LSE")
 
 
+def _mha_prefill_matmul(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    cu_seqlens_cpu: list[int],
+    softmax_scale: float | None,
+) -> torch.Tensor:
+    """Causal TND fallback for head dimensions unsupported by CANN FA."""
+    if q.shape[1] % k.shape[1] or q.shape[1] % v.shape[1]:
+        raise ValueError("query heads must be divisible by key/value heads")
+    outputs = []
+    scale = _scale(q, softmax_scale)
+    for start, end in zip(cu_seqlens_cpu[:-1], cu_seqlens_cpu[1:]):
+        q_seq = q[start:end].transpose(0, 1).float()
+        k_seq = (
+            k[start:end]
+            .repeat_interleave(q.shape[1] // k.shape[1], dim=1)
+            .transpose(0, 1)
+            .float()
+        )
+        v_seq = (
+            v[start:end]
+            .repeat_interleave(q.shape[1] // v.shape[1], dim=1)
+            .transpose(0, 1)
+            .float()
+        )
+        scores = torch.matmul(q_seq, k_seq.transpose(-1, -2)) * scale
+        length = end - start
+        mask = torch.triu(
+            torch.ones((length, length), dtype=torch.bool, device=q.device),
+            diagonal=1,
+        )
+        scores.masked_fill_(mask, torch.finfo(scores.dtype).min)
+        output = torch.matmul(torch.softmax(scores, dim=-1), v_seq)
+        outputs.append(output.transpose(0, 1))
+    return torch.cat(outputs, dim=0).to(q.dtype)
+
+
 def mha_prefill(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -76,6 +114,9 @@ def mha_prefill(
 ) -> torch.Tensor:
     """Run causal variable-length MHA over uncached K/V."""
     del cu_seqlens, max_seqlen
+    if q.shape[-1] not in (64, 128, 192):
+        return _mha_prefill_matmul(q, k, v, cu_seqlens_cpu, softmax_scale)
+
     _check_options(
         window_left=window_left,
         logit_cap=logit_cap,

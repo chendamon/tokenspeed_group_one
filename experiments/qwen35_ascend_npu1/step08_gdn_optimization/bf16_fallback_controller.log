@@ -1,0 +1,66 @@
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30318 after 0 ms: Couldn't connect to server
+warmup input=32 output=16 total_ms=6283.785
+{"request_id": "cmpl-BqTpVduLvCeaDeLjvWsiYDuk-01a1628b-1e19-720d-91eb-8ccd0ba73631", "prompt_tokens": 32, "requested_output_tokens": 16, "client_ttft_ms": 311.06644007377326, "client_total_ms": 1148.039530031383, "output_text": " token token token token token token token token token token token token token token token token", "repeat": 0}
+{"request_id": "cmpl-z1QmCI9h0CysY1DMMKtKG1Y1-01a1628b-2294-728e-bf00-75a9a7b2e47b", "prompt_tokens": 32, "requested_output_tokens": 16, "client_ttft_ms": 308.8195100426674, "client_total_ms": 1152.172700036317, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 1}
+{"request_id": "cmpl-WaqoLuMYNvM28CPTDlUUJXaP-01a1628b-2714-7552-9c44-2d6b363a6d1f", "prompt_tokens": 32, "requested_output_tokens": 16, "client_ttft_ms": 306.4330399502069, "client_total_ms": 1143.5506700072438, "output_text": " model model model model model model model model model model model model model model model model", "repeat": 2}
+warmup input=32 output=64 total_ms=3801.755
+{"request_id": "cmpl-TEEH5xcyo7hTgcLJPQITUaUr-01a1628b-3a66-7383-b64c-b4e103a53b04", "prompt_tokens": 32, "requested_output_tokens": 64, "client_ttft_ms": 277.6763199362904, "client_total_ms": 3742.8566301241517, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 0}
+{"request_id": "cmpl-S3xWAes3aZksqP6jY1NplXKS-01a1628b-4905-73d0-a04a-5adfe9a6d9fe", "prompt_tokens": 32, "requested_output_tokens": 64, "client_ttft_ms": 276.97795000858605, "client_total_ms": 3722.414860036224, "output_text": " token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token token", "repeat": 1}
+{"request_id": "cmpl-HbdEHJM7b3y7aMheVZSaOL35-01a1628b-578f-7567-800f-437701398b84", "prompt_tokens": 32, "requested_output_tokens": 64, "client_ttft_ms": 276.4317800756544, "client_total_ms": 3700.440980028361, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 2}
+warmup input=512 output=16 total_ms=8001.863
+{"request_id": "cmpl-D10ZroON8glcn0rDyRXAyX2m-01a1628b-8546-762c-8878-f1e60043a191", "prompt_tokens": 512, "requested_output_tokens": 16, "client_ttft_ms": 3418.4326499234885, "client_total_ms": 4206.953749991953, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 0}
+{"request_id": "cmpl-ST9E5EIMrv0xNuN9YqfCDkut-01a1628b-95b5-72ef-8624-5b9492cf361c", "prompt_tokens": 512, "requested_output_tokens": 16, "client_ttft_ms": 3392.0996501110494, "client_total_ms": 4189.187420066446, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 1}
+{"request_id": "cmpl-wIwNSl6NyBKqQuwgacGOjlug-01a1628b-a612-75a8-b2a9-4cc844b1f50f", "prompt_tokens": 512, "requested_output_tokens": 16, "client_ttft_ms": 3426.436049863696, "client_total_ms": 4226.334639824927, "output_text": " token token token token token token token token token token token token token token token token", "repeat": 2}
+warmup input=512 output=64 total_ms=6784.039
+{"request_id": "cmpl-0bhoRV1uglgaTxdbRDjC1MZJ-01a1628b-d115-75e7-b12e-f927e5a2e997", "prompt_tokens": 512, "requested_output_tokens": 64, "client_ttft_ms": 3423.7392698414624, "client_total_ms": 6871.254019904882, "output_text": " model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model model", "repeat": 0}
+{"request_id": "cmpl-a5MFykkxgd3lYHne0j70GFJv-01a1628b-ebec-77a8-ad1b-280f8fa21ce6", "prompt_tokens": 512, "requested_output_tokens": 64, "client_ttft_ms": 3493.412130046636, "client_total_ms": 7109.416919993237, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 1}
+{"request_id": "cmpl-j8Vn9UUeaIu5bqKVI8zL7nBC-01a1628c-07b2-7127-ab27-078b5091cb61", "prompt_tokens": 512, "requested_output_tokens": 64, "client_ttft_ms": 3467.7408200223, "client_total_ms": 6985.8198401052505, "output_text": " hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello hello", "repeat": 2}
+[
+  {
+    "prompt_tokens": 32,
+    "output_tokens": 16,
+    "repeats": 3,
+    "client_ttft_ms_median": 308.82,
+    "client_total_ms_median": 1148.04
+  },
+  {
+    "prompt_tokens": 32,
+    "output_tokens": 64,
+    "repeats": 3,
+    "client_ttft_ms_median": 276.978,
+    "client_total_ms_median": 3722.415
+  },
+  {
+    "prompt_tokens": 512,
+    "output_tokens": 16,
+    "repeats": 3,
+    "client_ttft_ms_median": 3418.433,
+    "client_total_ms_median": 4206.954
+  },
+  {
+    "prompt_tokens": 512,
+    "output_tokens": 64,
+    "repeats": 3,
+    "client_ttft_ms_median": 3467.741,
+    "client_total_ms_median": 6985.82
+  }
+]
+mode=bf16_fallback server_pid=3232038

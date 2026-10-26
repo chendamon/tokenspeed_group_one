@@ -1,0 +1,14 @@
+ M python/tokenspeed/runtime/execution/model_executor.py
+ M python/tokenspeed/runtime/layers/attention/backends/state/mamba.py
+ M python/tokenspeed/runtime/layers/attention/linear/layernorm_gated.py
+ M python/tokenspeed/runtime/layers/layernorm.py
+ M python/tokenspeed/runtime/models/qwen3_5.py
+ M test/runtime/layers/test_npu_attention_backend.py
+ M tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mha.py
+ M tokenspeed-kernel-npu/test/test_mha.py
+ M tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py
+?? .runtime/
+?? experiments/
+?? tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/gdn.py
+?? tokenspeed-kernel-npu/test/test_gdn.py
+?? tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/ascend.py

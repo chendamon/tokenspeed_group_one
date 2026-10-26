@@ -1,0 +1,52 @@
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+{
+  "startup_s": 12.424868820002303,
+  "request_s": 11.942674099933356,
+  "output_ids": [
+    271,
+    248068,
+    271,
+    248069,
+    271,
+    760,
+    12515,
+    7701,
+    6105,
+    1521,
+    279,
+    8964,
+    579,
+    16078,
+    1100,
+    9872,
+    22602,
+    89661,
+    314,
+    3000,
+    318,
+    11855,
+    8,
+    777,
+    13057,
+    1056,
+    4860,
+    89661,
+    318,
+    1114,
+    681,
+    264
+  ],
+  "text": "\n\n<think>\n\n</think>\n\nThe sky appears blue because the Earth's atmosphere scatters shorter wavelengths of light (blue) more effectively than longer wavelengths (red), a",
+  "meta_info": {
+    "id": "f0139b3ead664ce486a23ac038cfd9aa",
+    "finish_reason": {
+      "type": "length",
+      "length": 32
+    },
+    "prompt_tokens": 11,
+    "weight_version": "default",
+    "completion_tokens": 32,
+    "cached_tokens": 0,
+    "e2e_latency": 11.94199800491333
+  }
+}

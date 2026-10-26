@@ -1,0 +1,1 @@
+{"id":"cmpl-Hu15yFUSKbqlwdFTEQ1viMIx-01a1624c-4874-7752-98f5-109ab11388a9","object":"text_completion","created":1792650528,"model":"qwen35-0.8b","choices":[{"text":",\n\nI am working with a Python","index":0,"finish_reason":"length"}],"usage":{"prompt_tokens":1,"completion_tokens":8,"total_tokens":9,"prompt_tokens_details":{"cached_tokens":0}},"system_fingerprint":"default"}

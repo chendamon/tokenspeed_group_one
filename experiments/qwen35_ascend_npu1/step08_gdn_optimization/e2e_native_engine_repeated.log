@@ -1,0 +1,131 @@
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+{
+  "startup_s": 12.534350960049778,
+  "prompt_ids": [
+    760,
+    6511,
+    314,
+    9338,
+    369
+  ],
+  "reference_ids": [
+    11751,
+    13,
+    198,
+    760,
+    6511,
+    314,
+    9338,
+    369
+  ],
+  "requests": [
+    {
+      "requested_output_tokens": 8,
+      "elapsed_s": 1.656062199966982,
+      "output_ids": [
+        11751,
+        13,
+        198,
+        760,
+        6511,
+        314,
+        9338,
+        369
+      ],
+      "reference_prefix_exact": true,
+      "text": " Paris.\nThe capital of France is",
+      "meta_info": {
+        "id": "23466e41360b45518cc3643d16e6ad88",
+        "finish_reason": {
+          "type": "length",
+          "length": 8
+        },
+        "prompt_tokens": 5,
+        "weight_version": "default",
+        "completion_tokens": 8,
+        "cached_tokens": 0,
+        "e2e_latency": 1.6555984020233154
+      }
+    },
+    {
+      "requested_output_tokens": 8,
+      "elapsed_s": 0.4631210200022906,
+      "output_ids": [
+        11751,
+        13,
+        198,
+        760,
+        6511,
+        314,
+        9338,
+        369
+      ],
+      "reference_prefix_exact": true,
+      "text": " Paris.\nThe capital of France is",
+      "meta_info": {
+        "id": "e4aa9c275fd546cabcde0bc4c0ed5d37",
+        "finish_reason": {
+          "type": "length",
+          "length": 8
+        },
+        "prompt_tokens": 5,
+        "weight_version": "default",
+        "completion_tokens": 8,
+        "cached_tokens": 0,
+        "e2e_latency": 0.4626889228820801
+      }
+    },
+    {
+      "requested_output_tokens": 32,
+      "elapsed_s": 1.9088834200520068,
+      "output_ids": [
+        11751,
+        13,
+        198,
+        760,
+        6511,
+        314,
+        9338,
+        369,
+        11751,
+        13,
+        198,
+        760,
+        6511,
+        314,
+        9338,
+        369,
+        11751,
+        13,
+        198,
+        760,
+        6511,
+        314,
+        9338,
+        369,
+        11751,
+        13,
+        198,
+        760,
+        6511,
+        314,
+        9338,
+        369
+      ],
+      "reference_prefix_exact": true,
+      "text": " Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is",
+      "meta_info": {
+        "id": "112d8b27690d4cd7a40b17408efbed52",
+        "finish_reason": {
+          "type": "length",
+          "length": 32
+        },
+        "prompt_tokens": 5,
+        "weight_version": "default",
+        "completion_tokens": 32,
+        "cached_tokens": 0,
+        "e2e_latency": 1.9081153869628906
+      }
+    }
+  ]
+}

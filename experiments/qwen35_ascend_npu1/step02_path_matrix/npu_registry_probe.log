@@ -1,0 +1,289 @@
+=== NPU1 GDN REGISTRY SUPPORT PROBE ===
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66: UserWarning: Permission mismatch: The owner of /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/lib/libop_plugin_atb.so does not match.
+  warnings.warn(f"Permission mismatch: The owner of {path} does not match.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+visible=1 device=Ascend910_9362 vendor=ascend
+prefill_kernel_capturable=False
+gdn_decode_step.separate_output_state=False
+gdn_decode_step.strided_qkv=False
+gdn_decode_mtp.separate_output_state=False
+gdn_decode_mtp.strided_qkv=False
+replay_commit=False
+=== NPU CONDITIONAL CORE OPS ===
+python/tokenspeed/runtime/utils/server_args.py-995-            # sampling-respecting backend on NVIDIA and Ascend; users can
+python/tokenspeed/runtime/utils/server_args.py-996-            # still opt into greedy explicitly via ``--sampling-backend greedy``.
+python/tokenspeed/runtime/utils/server_args.py-997-            if current_platform().is_nvidia:
+python/tokenspeed/runtime/utils/server_args.py-998-                self.sampling_backend = "flashinfer"
+python/tokenspeed/runtime/utils/server_args.py:999:            elif current_platform().is_npu:
+python/tokenspeed/runtime/utils/server_args.py-1000-                self.sampling_backend = "ascend_full"
+python/tokenspeed/runtime/utils/server_args.py-1001-            else:
+python/tokenspeed/runtime/utils/server_args.py-1002-                self.sampling_backend = "greedy"
+python/tokenspeed/runtime/utils/server_args.py-1003-
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/ascend.py-24-from tokenspeed_kernel.platform import CapabilityRequirement, current_platform
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/ascend.py-25-from tokenspeed_kernel.registry import Priority, register_kernel
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/ascend.py-26-from tokenspeed_kernel.signature import format_signatures
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/ascend.py-27-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/ascend.py:28:if current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/ascend.py-29-    from tokenspeed_kernel_npu.ops.moe import (
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/ascend.py-30-        ascend_bf16_distributed_precomputed_moe_apply as _distributed_moe_apply,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/ascend.py-31-    )
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/ascend.py-32-    from tokenspeed_kernel_npu.ops.moe import (
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/__init__.py-820-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/__init__.py-821-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/__init__.py-822-logger = logging.getLogger(__name__)
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/__init__.py-823-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/__init__.py:824:if current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/__init__.py-825-    import tokenspeed_kernel.ops.moe.ascend  # noqa: F401
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/__init__.py-826-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/__init__.py-827-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/moe/__init__.py-828-def _assert_indices_in_range(
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/sampling/ascend.py-29-min_p_renorm_prob = error_fn
+tokenspeed-kernel/python/tokenspeed_kernel/ops/sampling/ascend.py-30-sample_from_probs = error_fn
+tokenspeed-kernel/python/tokenspeed_kernel/ops/sampling/ascend.py-31-verify_chain_greedy = error_fn
+tokenspeed-kernel/python/tokenspeed_kernel/ops/sampling/ascend.py-32-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/sampling/ascend.py:33:if current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/sampling/ascend.py-34-    from tokenspeed_kernel_npu.ops.sampling import (
+tokenspeed-kernel/python/tokenspeed_kernel/ops/sampling/ascend.py-35-        SamplingWorkspace,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/sampling/ascend.py-36-        chain_speculative_sampling_target_only,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/sampling/ascend.py-37-        fused_topk_topp_renorm,
+--
+python/tokenspeed/runtime/sampling/registry.py-39-
+python/tokenspeed/runtime/sampling/registry.py-40-def _get_default_backend_name() -> str:
+python/tokenspeed/runtime/sampling/registry.py-41-    if current_platform().is_nvidia:
+python/tokenspeed/runtime/sampling/registry.py-42-        return "flashinfer"
+python/tokenspeed/runtime/sampling/registry.py:43:    if current_platform().is_npu:
+python/tokenspeed/runtime/sampling/registry.py-44-        return "ascend_full"
+python/tokenspeed/runtime/sampling/registry.py-45-    return "greedy"
+python/tokenspeed/runtime/sampling/registry.py-46-
+python/tokenspeed/runtime/sampling/registry.py-47-
+--
+python/tokenspeed/runtime/sampling/registry.py-73-    from tokenspeed.runtime.sampling.backends import triton as _t  # noqa: F401
+python/tokenspeed/runtime/sampling/registry.py-74-    from tokenspeed.runtime.sampling.backends import triton_full as _tf  # noqa: F401
+python/tokenspeed/runtime/sampling/registry.py-75-
+python/tokenspeed/runtime/sampling/registry.py-76-    name = _resolve_backend_name(server_args)
+python/tokenspeed/runtime/sampling/registry.py:77:    if current_platform().is_npu and name == "ascend_full":
+python/tokenspeed/runtime/sampling/registry.py-78-        from tokenspeed.runtime.sampling.backends import (  # noqa: F401
+python/tokenspeed/runtime/sampling/registry.py-79-            ascend_full as _af,
+python/tokenspeed/runtime/sampling/registry.py-80-        )
+python/tokenspeed/runtime/sampling/registry.py-81-
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/gemm/int8.py-27-def prepare_int8_linear(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/gemm/int8.py-28-    weight: torch.Tensor, weight_scale: torch.Tensor, *, output_dtype: torch.dtype
+tokenspeed-kernel/python/tokenspeed_kernel/ops/gemm/int8.py-29-) -> torch.nn.Module:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/gemm/int8.py-30-    """Prepare [N,K] INT8 weights and [N,1] scales for Ascend matmul."""
+tokenspeed-kernel/python/tokenspeed_kernel/ops/gemm/int8.py:31:    if not current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/gemm/int8.py-32-        raise NotImplementedError("Dynamic INT8 linear currently requires Ascend")
+tokenspeed-kernel/python/tokenspeed_kernel/ops/gemm/int8.py-33-    from tokenspeed_kernel_npu.ops.gemm import PreparedInt8Linear
+tokenspeed-kernel/python/tokenspeed_kernel/ops/gemm/int8.py-34-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/gemm/int8.py-35-    return PreparedInt8Linear(weight, weight_scale, output_dtype=output_dtype)
+--
+python/tokenspeed/runtime/layers/rotary_embedding.py-1356-                base,
+python/tokenspeed/runtime/layers/rotary_embedding.py-1357-                is_neox_style,
+python/tokenspeed/runtime/layers/rotary_embedding.py-1358-                scaling_factor,
+python/tokenspeed/runtime/layers/rotary_embedding.py-1359-                dtype,
+python/tokenspeed/runtime/layers/rotary_embedding.py:1360:                device="npu" if current_platform().is_npu else "cuda",
+python/tokenspeed/runtime/layers/rotary_embedding.py-1361-                ramp_device=yarn_ramp_mask_device,
+python/tokenspeed/runtime/layers/rotary_embedding.py-1362-                **extra_kwargs,
+python/tokenspeed/runtime/layers/rotary_embedding.py-1363-            )
+python/tokenspeed/runtime/layers/rotary_embedding.py-1364-        elif scaling_type == "longrope":
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/layernorm/ascend.py-20-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/layernorm/ascend.py-21-"""Ascend layernorm kernels."""
+tokenspeed-kernel/python/tokenspeed_kernel/ops/layernorm/ascend.py-22-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/layernorm/ascend.py-23-import torch
+tokenspeed-kernel/python/tokenspeed_kernel/ops/layernorm/ascend.py:24:from tokenspeed_kernel_npu.ops.layernorm import qk_rmsnorm as _npu_qk_rmsnorm
+tokenspeed-kernel/python/tokenspeed_kernel/ops/layernorm/ascend.py:25:from tokenspeed_kernel_npu.ops.layernorm import rmsnorm
+tokenspeed-kernel/python/tokenspeed_kernel/ops/layernorm/ascend.py-26-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/layernorm/ascend.py-27-__all__ = ["qk_rmsnorm", "rmsnorm"]
+tokenspeed-kernel/python/tokenspeed_kernel/ops/layernorm/ascend.py-28-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/layernorm/ascend.py-29-
+--
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-170-        # (Kimi-K2.5 / K2.6 / K2.7), FLOAT -> mxfp4 (K3).
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-171-        # A MoE-specific scheme must not change shared/dense Linear quantization.
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-172-        scheme = (
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-173-            self.target_scheme_map.get("Moe", self.target_scheme_map.get("Linear"))
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py:174:            if current_platform().is_npu
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-175-            else self.target_scheme_map.get("Linear")
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-176-        )
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-177-        if scheme is None:
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-178-            raise ValueError("Missing MoE quantization scheme")
+--
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-215-        )
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-216-
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-217-    def _is_dynamic_token_int8(self, weight_quant, input_quant) -> bool:
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-218-        return (
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py:219:            current_platform().is_npu
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-220-            and self.quant_format == CompressionFormat.int_quantized.value
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-221-            and weight_quant is not None
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-222-            and input_quant is not None
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-223-            and weight_quant.num_bits == 8
+--
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-234-
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-235-    def _is_dynamic_token_int4(self, weight_quant, input_quant) -> bool:
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-236-        """Ascend FlatQuant W4A4, distinct from group-wise weight-only INT4."""
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-237-        return (
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py:238:            current_platform().is_npu
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-239-            and self.quant_format == CompressionFormat.int_quantized.value
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-240-            and weight_quant is not None
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-241-            and input_quant is not None
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py-242-            and weight_quant.num_bits == input_quant.num_bits == 4
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/embedding/ascend.py-26-from tokenspeed_kernel.platform import CapabilityRequirement, current_platform
+tokenspeed-kernel/python/tokenspeed_kernel/ops/embedding/ascend.py-27-from tokenspeed_kernel.registry import Priority, register_kernel
+tokenspeed-kernel/python/tokenspeed_kernel/ops/embedding/ascend.py-28-from tokenspeed_kernel.signature import format_signatures
+tokenspeed-kernel/python/tokenspeed_kernel/ops/embedding/ascend.py-29-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/embedding/ascend.py:30:if current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/embedding/ascend.py:31:    from tokenspeed_kernel_npu.ops.rotary_embedding import apply_rope as _apply_rope
+tokenspeed-kernel/python/tokenspeed_kernel/ops/embedding/ascend.py-32-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/embedding/ascend.py-33-    @register_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/embedding/ascend.py-34-        "embedding",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/embedding/ascend.py-35-        "rope",
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/ascend.py-24-from tokenspeed_kernel.platform import CapabilityRequirement, current_platform
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/ascend.py-25-from tokenspeed_kernel.registry import Priority, register_kernel
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/ascend.py-26-from tokenspeed_kernel.signature import format_signatures
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/ascend.py-27-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/ascend.py:28:if current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/ascend.py-29-    from tokenspeed_kernel_npu.ops.mla import attn_merge_state
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/ascend.py-30-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/ascend.py-31-    register_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/ascend.py-32-        "attention",
+--
+python/tokenspeed/runtime/distributed/comm_backend/registry.py-33-def initialize_comm_backend(use_pynccl: bool = False) -> CommBackend:
+python/tokenspeed/runtime/distributed/comm_backend/registry.py-34-    """Create and configure the global communication backend."""
+python/tokenspeed/runtime/distributed/comm_backend/registry.py-35-    global _global_backend
+python/tokenspeed/runtime/distributed/comm_backend/registry.py-36-
+python/tokenspeed/runtime/distributed/comm_backend/registry.py:37:    if current_platform().is_npu:
+python/tokenspeed/runtime/distributed/comm_backend/registry.py-38-        from tokenspeed.runtime.distributed.comm_backend.hccl import HcclBackend
+python/tokenspeed/runtime/distributed/comm_backend/registry.py-39-
+python/tokenspeed/runtime/distributed/comm_backend/registry.py-40-        _global_backend = HcclBackend()
+python/tokenspeed/runtime/distributed/comm_backend/registry.py-41-    else:
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/ascend.py-19-# SOFTWARE.
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/ascend.py-20-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/ascend.py-21-"""Ascend activation kernels."""
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/ascend.py-22-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/ascend.py:23:from tokenspeed_kernel_npu.ops.activation import (
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/ascend.py-24-    dequant_silu_and_mul_quant,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/ascend.py-25-    silu_and_mul,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/ascend.py-26-    silu_and_mul_quant,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/ascend.py-27-)
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/__init__.py-43-    Positive ``limit`` values use the portable Triton implementation because
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/__init__.py-44-    the CUDA implementation does not expose the checkpoint's clamp semantics.
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/__init__.py-45-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/__init__.py-46-    """
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/__init__.py:47:    if current_platform().is_npu and limit is None:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/__init__.py-48-        from tokenspeed_kernel.ops.activation.ascend import silu_and_mul as npu_swiglu
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/__init__.py-49-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/__init__.py-50-        return npu_swiglu(x, out)
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/__init__.py-51-    if (
+--
+python/tokenspeed/runtime/layers/attention/backends/paged/dsa.py-1336-            )
+python/tokenspeed/runtime/layers/attention/backends/paged/dsa.py-1337-        return out.reshape(-1, heads * layer.v_head_dim)
+python/tokenspeed/runtime/layers/attention/backends/paged/dsa.py-1338-
+python/tokenspeed/runtime/layers/attention/backends/paged/dsa.py-1339-
+python/tokenspeed/runtime/layers/attention/backends/paged/dsa.py:1340:if not current_platform().is_npu:
+python/tokenspeed/runtime/layers/attention/backends/paged/dsa.py-1341-    register_backend("dsa", {AttentionArch.DSA}, DSABackend)
+--
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_mla.py-191-        lse = torch.where(empty, -torch.inf, lse)
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_mla.py-192-        return self._dcp.combine(output, lse, merge=self._merge_partials).flatten(1)
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_mla.py-193-
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_mla.py-194-
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_mla.py:195:if current_platform().is_npu:
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_mla.py-196-    register_backend("tokenspeed_mla", {AttentionArch.MLA}, AscendMLABackend)
+--
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_dsa.py-964-            head_major_output=head_major_output,
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_dsa.py-965-        )
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_dsa.py-966-
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_dsa.py-967-
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_dsa.py:968:if current_platform().is_npu:
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_dsa.py-969-    register_backend(
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_dsa.py-970-        "dsa",
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_dsa.py-971-        {AttentionArch.DSA},
+python/tokenspeed/runtime/layers/attention/backends/paged/ascend_dsa.py-972-        AscendDSABackend,
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-27-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-28-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-29-def ascend_mla_dcp_kernels():
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-30-    """Return the Ascend packed MLA partial/merge and graph-length adapter."""
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py:31:    if not current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-32-        raise RuntimeError("Ascend MLA DCP kernels require an NPU platform")
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-33-    from tokenspeed_kernel_npu.ops import mla_dcp
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-34-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-35-    return mla_dcp
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-36-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-37-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py:38:if current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-39-    from tokenspeed_kernel_npu.ops.mla import (
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-40-        mla_decode_with_kvcache as _mla_decode_with_kvcache,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-41-    )
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/ascend.py-42-    from tokenspeed_kernel_npu.ops.mla import (
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/dsa/__init__.py-1238-import tokenspeed_kernel.ops.attention.dsa.flashinfer  # noqa: E402,F401
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/dsa/__init__.py-1239-import tokenspeed_kernel.ops.attention.dsa.triton  # noqa: E402,F401
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/dsa/__init__.py-1240-import tokenspeed_kernel.ops.attention.dsa.gluon  # noqa: E402,F401
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/dsa/__init__.py-1241-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/dsa/__init__.py:1242:if current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/dsa/__init__.py-1243-    import tokenspeed_kernel.ops.attention.dsa.ascend  # noqa: E402,F401
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/dsa/__init__.py-1244-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/dsa/__init__.py-1245-# isort: on
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/dsa/__init__.py-1246-
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-43-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-44-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-45-def mla_prolog_available() -> bool:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-46-    """Whether the optional Ascend Lite MLA prolog is available."""
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py:47:    if not current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-48-        return False
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-49-    from tokenspeed_kernel_npu.ops.mla_prolog import mla_prolog_available as available
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-50-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-51-    return available()
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-52-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-53-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-54-def mla_prolog(*args, **kwargs) -> tuple[torch.Tensor, torch.Tensor] | None:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-55-    """Run the Ascend Lite MLA prolog when its input is eligible."""
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py:56:    if not current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-57-        raise NotImplementedError("Lite MLA prolog is only available on Ascend")
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-58-    from tokenspeed_kernel_npu.ops.mla_prolog import mla_prolog as npu_mla_prolog
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-59-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-60-    return npu_mla_prolog(*args, **kwargs)
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-1332-import tokenspeed_kernel.ops.attention.mla.tokenspeed_mla  # noqa: E402,F401
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-1333-import tokenspeed_kernel.ops.attention.mla.triton  # noqa: E402,F401
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-1334-import tokenspeed_kernel.ops.attention.mla.gluon  # noqa: E402,F401
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-1335-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py:1336:if current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-1337-    import tokenspeed_kernel.ops.attention.mla.ascend  # noqa: E402,F401
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-1338-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-1339-# isort: on
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mla/__init__.py-1340-
+--
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py-203-        enable_pdl=enable_pdl,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py-204-    )
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py-205-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py-206-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py:207:if current_platform().is_npu:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py:208:    from tokenspeed_kernel_npu.ops.mha import (
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py-209-        mha_decode_with_kvcache as _mha_decode_with_kvcache,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py-210-    )
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py:211:    from tokenspeed_kernel_npu.ops.mha import (
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py-212-        mha_extend_with_kvcache as _mha_extend_with_kvcache,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py-213-    )
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py:214:    from tokenspeed_kernel_npu.ops.mha import mha_prefill as _mha_prefill
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py-215-
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py-216-    _NPU_CAPABILITY = CapabilityRequirement(vendors=frozenset({"ascend"}))
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py-217-    _NPU_OPTIONS = {
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/mha/triton.py-218-        "logit_cap": frozenset({False}),
+=== FINAL NPU1 PROCESS CHECK ===
+| No running processes found in NPU 1                                                            |

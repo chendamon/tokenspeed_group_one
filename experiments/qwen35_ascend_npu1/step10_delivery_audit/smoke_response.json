@@ -1,0 +1,1 @@
+{"id":"cmpl-MQrfocqwhoFgwLJUnJzpGLWw-01a16336-116e-7666-9ccd-94e606dd6741","object":"text_completion","created":1792665850,"model":"qwen35-0.8b","choices":[{"text":"\n- The user wants to know the","index":0,"finish_reason":"length"}],"usage":{"prompt_tokens":4,"completion_tokens":8,"total_tokens":12,"prompt_tokens_details":{"cached_tokens":0}},"system_fingerprint":"default"}

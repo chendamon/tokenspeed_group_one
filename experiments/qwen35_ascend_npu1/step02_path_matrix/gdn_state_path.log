@@ -1,0 +1,1154 @@
+=== GDN BACKEND CLASS ===
+# Copyright (c) 2026 LightSeek Foundation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""Gated DeltaNet layers (the Qwen3.5 family) on the shared recurrent-state backend."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from tokenspeed_kernel.ops.attention.gdn import (
+    gdn_chunk_prefill_capturable,
+    gdn_decode_supports,
+)
+from tokenspeed_kernel.ops.attention.gdn.triton import pack_gdn_projection
+
+from tokenspeed.runtime.layers.attention.backends.state.mamba import (
+    gdn_decode_solution,
+)
+from tokenspeed.runtime.layers.attention.backends.state.prefill_capacity import (
+    CapacityPrefillBackend,
+)
+from tokenspeed.runtime.layers.attention.configs.linear_attn import LinearAttnConfig
+
+if TYPE_CHECKING:
+    import torch
+
+    from tokenspeed.runtime.layers.attention.configs.base import (
+        AttnConfig,
+        SoftmaxAttnConfig,
+    )
+    from tokenspeed.runtime.layers.attention.kv_cache.base import CachePool
+
+
+class GdnAttnBackend(CapacityPrefillBackend):
+    """GDN layers, captured inline by the prefill graph where the scan allows it.
+
+    The shared base already runs GDN; this class only admits capacity-shaped
+    prefills, which needs a chunk-prefill kernel that reads its sequence bounds
+    on device (see ``gdn_chunk_prefill_capturable``).
+    """
+
+    # The scan reads its bounds on device, so packing would only add work to eager forwards.
+    _capacity_layout_when_uncaptured = False
+    _verify_scan_writes_replay = True
+
+    def __init__(self, config: AttnConfig, spec: SoftmaxAttnConfig) -> None:
+        super().__init__(config, spec)
+        linear_attn = config.component(LinearAttnConfig)
+        self._prefill_capturable = gdn_chunk_prefill_capturable(
+            config.dtype,
+            head_dim=linear_attn.head_k_dim,
+            value_head_dim=linear_attn.head_v_dim,
+            num_q_heads=linear_attn.num_k_heads // linear_attn.tp_size,
+            num_v_heads=linear_attn.num_v_heads // linear_attn.tp_size,
+            qk_l2norm=True,
+        )
+
+        self._head_k_dim = linear_attn.head_k_dim
+        # Resolved when a pool binds (its state dtype picks the verify kernel).
+        self._verify_reads_committed_recurrent_state = False
+        self._verify_packed_qkv_views = False
+        self._decode_packed_qkv_views = False
+
+    def _publish_cache_pool(self, cache_pool: CachePool) -> None:
+        super()._publish_cache_pool(cache_pool)
+        # Where the verify kernel takes a separate destination pool, verify
+        # reads the committed state in place instead of seeding the scratch
+        # with a copy of it. Where a decode or verify kernel takes strided
+        # q/k/v (and a/b), it reads the projection views as handed over
+        # instead of a packed copy.
+        ssm_dtype = self._state_components(self._state_layer_ids()[0])[1].dtype
+        solution = gdn_decode_solution(ssm_dtype)
+
+        def supports(op: str, trait: str) -> bool:
+            return gdn_decode_supports(
+                op,
+                self.dtype,
+                head_dim=self._head_k_dim,
+                trait=trait,
+                solution=solution,
+            )
+
+        self._verify_reads_committed_recurrent_state = not self.replay_ssm and supports(
+            "gdn_decode_mtp", "separate_output_state"
+        )
+        self._verify_packed_qkv_views = supports("gdn_decode_mtp", "strided_qkv")
+        self._decode_packed_qkv_views = supports("gdn_decode_step", "strided_qkv")
+
+    def _admits_capacity_prefill(self) -> bool:
+        return self._prefill_capturable
+
+    def _pack_projection(
+        self,
+        mixed_qkv: torch.Tensor,
+        a: torch.Tensor | None,
+        b: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+        # Projection views to the dense, aligned rows FlashInfer's kernels need;
+        # skipped where the selected kernels read the views by stride.
+        return pack_gdn_projection(mixed_qkv, a, b)
+=== STATE BACKEND MODE DISPATCH ===
+                {g: self.state_out_by_group[g][bs - 1] for g in gids},
+            )
+
+        state_in_by = state_out_by = None
+        if real_bs > 0:
+            state_in_by, state_out_by = self._cache_contract_state_blocks(
+                self._decode_state_tokens_before(real_bs, seq_lens),
+                block_tables,
+                validate=None,
+            )
+        in_by_group: dict[str, torch.Tensor] = {}
+        out_by_group: dict[str, torch.Tensor] = {}
+        for gid in gids:
+            state_in_blocks = self.state_in_by_group[gid][bs - 1]
+            state_out_blocks = self.state_out_by_group[gid][bs - 1]
+            if real_bs > 0:
+                state_in_blocks[:real_bs].copy_(state_in_by[gid][:real_bs])
+                state_out_blocks[:real_bs].copy_(state_out_by[gid][:real_bs])
+            if real_bs < bs:
+                state_in_blocks[real_bs:].fill_(self.pad_slot_id)
+                state_out_blocks[real_bs:].fill_(self.pad_slot_id)
+            in_by_group[gid] = state_in_blocks
+            out_by_group[gid] = state_out_blocks
+        return in_by_group, out_by_group
+
+    # ---- Forward ----
+
+    def _layer_state(
+        self, layer_id: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Resolve one recurrent layer's page indices and component views."""
+        metadata = self.forward_metadata
+        state_in_by_group = metadata.state_in_blocks_by_group
+        group_id = self._state_group_for(layer_id)
+        if state_in_by_group is None or group_id not in state_in_by_group:
+            raise RuntimeError(
+                f"state paging: layer {layer_id} resolves to group {group_id!r}, "
+                "but the forward batch has no page indices for that group"
+            )
+        conv_states, ssm_states = self._state_components(layer_id)
+        return (
+            state_in_by_group[group_id],
+            metadata.state_out_blocks_by_group[group_id],
+            conv_states,
+            ssm_states,
+        )
+
+    def forward_decode(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        layer: PagedAttention,
+        token_to_kv_pool,
+        bs: int,
+        save_kv_cache: bool = True,
+        **kwargs,
+    ):
+        # Multi-token decode (target verify or drafter compound) reuses
+        # the multi-token kernel path in forward_extend. `q` is None for
+        # hybrid linear-attn layers; the token count comes from mixed_qkv.
+        q_len_per_req = kwargs["mixed_qkv"].shape[0] // bs if bs > 0 else 1
+        if q_len_per_req > 1:
+            return self.forward_extend(
+                q,
+                k,
+                v,
+                layer,
+                token_to_kv_pool,
+                bs,
+                forward_mode=ForwardMode.DECODE,
+                save_kv_cache=save_kv_cache,
+                **kwargs,
+            )
+
+        mixed_qkv = kwargs["mixed_qkv"]
+        conv_weights = kwargs["conv_weights"]
+        bias = kwargs["bias"]
+        activation = kwargs["activation"]
+        key_dim = kwargs["key_dim"]
+        value_dim = kwargs["value_dim"]
+        attn_tp_size = kwargs["attention_tp_size"]
+        head_k_dim = kwargs["head_k_dim"]
+        head_v_dim = kwargs["head_v_dim"]
+        a = kwargs.get("a")
+        b = kwargs.get("b")
+        f_a_out = kwargs.get("f_a_out")
+        f_b_weight = kwargs.get("f_b_weight")
+        g_raw = kwargs.get("g_raw")
+        beta_raw = kwargs.get("beta_raw")
+        gate_lower_bound = kwargs.get("lower_bound")
+        A_log = kwargs["A_log"]
+        dt_bias = kwargs["dt_bias"]
+        D = kwargs.get("D")
+        layer_id = kwargs["layer_id"]
+
+        # Read the page holding position n-1 and write the page holding
+        # position n. Padding rows use -1 and are skipped by both kernels.
+        state_in_blocks, state_out_blocks, conv_states, ssm_states = self._layer_state(
+            layer_id
+        )
+        read_indices = state_in_blocks
+
+        fused_out = self._decode(
+            mixed_qkv,
+            conv_weights,
+            conv_states,
+            ssm_states,
+            read_indices,
+            state_out_blocks,
+            f_a_out=f_a_out,
+            f_b_weight=f_b_weight,
+            beta_raw=beta_raw,
+            A_log=A_log,
+            dt_bias=dt_bias,
+            value_dim=value_dim,
+            attn_tp_size=attn_tp_size,
+            head_v_dim=head_v_dim,
+            lower_bound=gate_lower_bound,
+        )
+        if fused_out is not None:
+            return fused_out
+
+        # Stride-aware decoders consume packed projection views directly.
+        # Otherwise a family whose model hands over projection views makes them
+        # dense here, and the shared fallback keeps its compact input layout.
+        if not self._decode_packed_qkv_views:
+            mixed_qkv, a, b = self._pack_projection(mixed_qkv, a, b)
+            mixed_qkv = mixed_qkv.contiguous()
+        mixed_qkv = causal_conv1d_update(
+            mixed_qkv,
+            conv_states,
+            conv_weights,
+            bias,
+            activation,
+            conv_state_indices=read_indices,
+            output_state_indices=state_out_blocks.view(-1, 1),
+            parent_indices=None,
+        )
+
+        query, key, value = torch.split(
+            mixed_qkv,
+            [
+                key_dim // attn_tp_size,
+                key_dim // attn_tp_size,
+                value_dim // attn_tp_size,
+            ],
+            dim=-1,
+        )
+        seq_len = query.shape[0]
+        num_heads = query.shape[1] // head_k_dim
+        # [B, 1, H, K] / [B, 1, HV, V]: B=this decode step's request count,
+        # T=1. gdn_decode_step's K-last state pool means no transpose is
+        # needed between this call and the pool/state-slab storage.
+        query = query.view(seq_len, 1, num_heads, head_k_dim)
+        key = key.view(seq_len, 1, num_heads, head_k_dim)
+        value = value.view(seq_len, 1, value.shape[1] // head_v_dim, head_v_dim)
+
+        return self._decode_scan(
+            query,
+            key,
+            value,
+            ssm_states,
+            read_indices,
+            state_out_blocks,
+            A_log=A_log,
+            dt_bias=dt_bias,
+            D=D,
+            a=a,
+            b=b,
+            g_raw=g_raw,
+            f_a_out=f_a_out,
+            f_b_weight=f_b_weight,
+            beta_raw=beta_raw,
+            lower_bound=gate_lower_bound,
+        )
+
+    def _decode(
+        self,
+        mixed_qkv: torch.Tensor,
+        conv_weights: torch.Tensor,
+        conv_states: torch.Tensor,
+        ssm_states: torch.Tensor,
+        read_indices: torch.Tensor,
+        write_indices: torch.Tensor,
+        *,
+        f_a_out: torch.Tensor | None,
+        f_b_weight: torch.Tensor | None,
+        beta_raw: torch.Tensor | None,
+        A_log: torch.Tensor,
+        dt_bias: torch.Tensor,
+        value_dim: int,
+        attn_tp_size: int,
+        head_v_dim: int,
+        lower_bound: float | None,
+    ) -> torch.Tensor | None:
+        """Whole-step decode attempt; ``None`` falls through to the shared flow.
+
+        Sits before the conv update because a family's kernel may absorb it.
+
+        GDN has no fused conv+gate+scan kernel, so the base returns None and
+        the caller runs the shared conv update / qkv split / scan flow. KDA
+        overrides this with a kernel that absorbs all three stages and may
+        itself decline (unsupported shape or platform), which is why the
+        sentinel is "not handled, continue" rather than a family switch.
+
+        Args:
+            mixed_qkv: Packed ``[T, key+key+value]`` conv input.
+            conv_weights: Depthwise conv filters.
+            conv_states: Conv-window component of this layer's state slab.
+            ssm_states: Recurrent component of this layer's state slab.
+            read_indices: Per-request state page holding position n-1.
+            write_indices: Per-request state page receiving position n.
+            f_a_out: Low-rank gate activation (KDA); None on GDN.
+            f_b_weight: Second gate projection consumed inside the fusion.
+            beta_raw: Raw per-head beta logits (KDA).
+=== GDN CONFIG SHAPES ===
+# Copyright (c) 2026 LightSeek Foundation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""Linear-attention (KDA / GDN) boot-time configuration.
+
+``LinearAttnConfig`` is the linear-attention component: registered per
+architecture (``registry._LINEAR_ATTN_CLS``), built through the same
+``generate()`` protocol as the softmax families, and carried in
+``AttnConfig.components``. Models without linear-attention layers simply
+have no such component.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import ClassVar
+
+from tokenspeed.runtime.configs.model_config import ModelConfig
+from tokenspeed.runtime.layers.attention.configs.base import AttnComponentSpec
+from tokenspeed.runtime.utils.server_args import ServerArgs
+
+
+@dataclass(kw_only=True)
+class LinearAttnConfig(AttnComponentSpec):
+    """Boot-constant facts about a model's linear-attention layers.
+
+    Field names are unified across the two in-tree families:
+
+    * Kimi-K3 KDA — ``linear_attn_config`` dict: symmetric heads/dims
+      (``num_heads``/``head_dim`` for both k and v).
+    * Qwen3.5 GDN — flat ``linear_*`` fields: asymmetric key/value heads.
+
+    ``tp_size`` is the linear-attention TP width distilled from
+    ``mapping.linear_attn`` (the same copy-a-scalar convention as
+    ``SoftmaxAttnConfig.attn_tp_size``).
+    """
+
+    num_k_heads: int
+    num_v_heads: int
+    head_k_dim: int
+    head_v_dim: int
+    conv_kernel_size: int
+    # 0-based global indices of the linear-attention layers. Non-empty by
+    # construction: a model without linear layers gets no LinearAttnConfig.
+    layer_ids: tuple[int, ...]
+    tp_size: int
+    # Whether verify replays the SSM state instead of checkpoint-restoring.
+    # Resolved by the GDN cache recipe after checking the engine option,
+    # verify width, device, and registered kernel support.
+    replay_ssm: bool = False
+    # Draft-tree verify windows (topk > 1); a ReplaySSM tree keeps node states in one shared workspace.
+    draft_tree: bool = False
+    # Whether that workspace exists: Mamba2 rebuilds a branch's state by replaying its ancestors instead.
+    tree_node_state_workspace: ClassVar[bool] = True
+
+    def __post_init__(self):
+        if not self.layer_ids:
+            raise ValueError("layer_ids must be non-empty")
+        if self.tp_size <= 0:
+            raise ValueError(f"tp_size must be positive, got {self.tp_size}")
+        if self.num_k_heads % self.tp_size or self.num_v_heads % self.tp_size:
+            raise ValueError(
+                f"linear-attention heads (k={self.num_k_heads}, "
+                f"v={self.num_v_heads}) must be divisible by "
+                f"tp_size={self.tp_size}"
+            )
+
+    @property
+    def conv_dim(self) -> int:
+        """Width of the short causal conv over q/k/v (q and k share key geometry)."""
+        return (
+            2 * self.num_k_heads * self.head_k_dim + self.num_v_heads * self.head_v_dim
+        )
+
+    @property
+    def conv_state_shape(self) -> tuple[int, int]:
+        """Per-rank rolling conv state: (conv_dim / tp, kernel - 1)."""
+        return (self.conv_dim // self.tp_size, self.conv_kernel_size - 1)
+
+    @property
+    def temporal_state_shape(self) -> tuple[int, int, int]:
+        """Per-rank recurrent (delta-rule/SSM) state, K-last: (Hv / tp, V, K)."""
+        return (
+            self.num_v_heads // self.tp_size,
+            self.head_v_dim,
+            self.head_k_dim,
+        )
+
+    @classmethod
+    def generate(
+        cls, server_args: ServerArgs, model_config: ModelConfig, is_draft: bool = False
+    ) -> LinearAttnConfig | None:
+        """Build the linear-attention config, or None for checkpoints without one.
+
+        Which architectures may carry this component is declared in
+        ``registry._LINEAR_ATTN_CLS``; here the checkpoint decides presence
+        via a non-empty ``linear_layer_ids`` (not field presence — base
+        configs expose the geometry fields with defaults even for
+        full-attention-only variants, and NextN drafts may have no linear
+        layers). ``is_draft`` is accepted for construction-protocol parity;
+        the linear half has no draft-specific facts yet.
+        """
+        del is_draft
+        hf_config = model_config.hf_config
+        text_config = getattr(hf_config, "text_config", hf_config)
+        linear_layer_ids = getattr(text_config, "linear_layer_ids", None)
+        if not linear_layer_ids:
+            return None
+
+        tp_size = server_args.mapping.linear_attn.tp_size
+        kda = getattr(text_config, "linear_attn_config", None)
+        if isinstance(kda, dict):
+            # Kimi-K3 KDA: symmetric k/v geometry in one dict.
+            num_heads = int(kda["num_heads"])
+            head_dim = int(kda["head_dim"])
+            return cls(
+                num_k_heads=num_heads,
+                num_v_heads=num_heads,
+                head_k_dim=head_dim,
+                head_v_dim=head_dim,
+                conv_kernel_size=int(kda["short_conv_kernel_size"]),
+                layer_ids=tuple(linear_layer_ids),
+                tp_size=tp_size,
+            )
+        # Qwen3.5 GDN: flat fields, asymmetric k/v heads.
+        return cls(
+            num_k_heads=int(text_config.linear_num_key_heads),
+            num_v_heads=int(text_config.linear_num_value_heads),
+            head_k_dim=int(text_config.linear_key_head_dim),
+            head_v_dim=int(text_config.linear_value_head_dim),
+            conv_kernel_size=int(text_config.linear_conv_kernel_dim),
+            layer_ids=tuple(linear_layer_ids),
+            tp_size=tp_size,
+        )
+
+
+@dataclass(kw_only=True)
+class Mamba2Config(LinearAttnConfig):
+    """Linear-attention component of a Mamba2 (SSD) hybrid such as Nemotron-H.
+
+    The shared geometry maps as: ``num_k_heads`` = B/C groups,
+    ``head_k_dim`` = SSM state size, ``num_v_heads`` = Mamba heads and
+    ``head_v_dim`` = Mamba head dim. So ``conv_dim`` is the x/B/C conv width
+    and ``temporal_state_shape`` is the SSD state ``(heads, head_dim, d_state)``.
+    """
+
+    chunk_size: int
+    dt_limit: tuple[float, float]
+    tree_node_state_workspace: ClassVar[bool] = False
+
+    @classmethod
+    def generate(
+        cls, server_args: ServerArgs, model_config: ModelConfig, is_draft: bool = False
+    ) -> Mamba2Config | None:
+        """Build the Mamba2 component, or None for a view without Mamba2 layers."""
+        del is_draft
+        text_config = model_config.hf_text_config
+        linear_layer_ids = text_config.linear_layer_ids
+        if not linear_layer_ids:
+            return None
+        low, high = text_config.time_step_limit
+        # JSON has no infinity, so checkpoints write an unbounded dt as 1e30.
+        if high >= 1e30:
+            high = float("inf")
+        return cls(
+            num_k_heads=int(text_config.n_groups),
+            num_v_heads=int(text_config.mamba_num_heads),
+            head_k_dim=int(text_config.ssm_state_size),
+            head_v_dim=int(text_config.mamba_head_dim),
+            conv_kernel_size=int(text_config.conv_kernel),
+            layer_ids=tuple(linear_layer_ids),
+            tp_size=server_args.mapping.linear_attn.tp_size,
+            chunk_size=int(text_config.chunk_size),
+            dt_limit=(float(low), float(high)),
+        )
+=== QWEN GDN CACHE RECIPE ===
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-179-        value_width = (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-180-            text_config.linear_value_head_dim * text_config.linear_num_value_heads
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-181-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-182-        if suffix == "conv":
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-183-            return CacheFieldPartition(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-184-                0,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-185-                2 * key_width + value_width,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-186-                (key_width, key_width, value_width),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-187-            )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-188-        return CacheFieldPartition(0, text_config.linear_num_value_heads)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-189-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-190-    linear_config = getattr(text_config, "linear_attn_config", None)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py:191:    if suffix in ("conv_state", "recurrent_state") and linear_config is not None:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-192-        num_heads = int(linear_config["num_heads"])
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-193-        head_dim = int(linear_config["head_dim"])
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py:194:        if suffix == "conv_state":
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-195-            width = num_heads * head_dim
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-196-            return CacheFieldPartition(0, 3 * width, (width, width, width))
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-197-        return CacheFieldPartition(0, num_heads)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-198-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-199-    return None
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-200-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-201-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-202-def build_cache_transfer_schema(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-203-    plan: CacheMemoryPlan,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-204-    *,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-205-    model_config: ModelConfig,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/transfer.py-206-    draft_model_config: ModelConfig | None = None,
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-55-)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-56-from tokenspeed.runtime.layers.attention.kv_cache.recipes.qwen35 import (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-57-    QwenGDNRecipe,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-58-)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-59-from tokenspeed.runtime.layers.attention.kv_cache.recipes.spec import (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-60-    CacheGroupSpec,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-61-)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-62-from tokenspeed.runtime.layers.attention.kv_cache.recipes.storage import (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-63-    CacheStoragePlan,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-64-)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-65-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-66-# A cache family names one registered recipe and pool factory. The in-tree
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py:67:# families are mha, mla, dsa, msa, qwen_gdn, qwen4_exp, mamba2, inkling,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-68-# kimi_k3, glm53_flash and deepseek_v41; plugins register their own.
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-69-CacheModelFamily = str
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-70-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-71-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-72-@dataclass(frozen=True)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-73-class CachePoolSpec:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-74-    """Everything needed to bind one model's compute views to a cache buffer."""
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-75-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-76-    family: CacheModelFamily
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-77-    memory_plan: CacheMemoryPlan
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-78-    layer_types: tuple[str, ...]
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-79-    # Scheduler group specs, declared next to the fields the plan was packed
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-158-        return len(self.spec.layer_types) - self.num_draft_layers
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-159-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-160-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-161-# family -> how to build its recipe. Every family runs the one pipeline in
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-162-# CacheRecipe.setup(); the class only fills in that family's seams, and the
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-163-# four ordinary families differ by nothing but the family label. Plugins add
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-164-# families via ``tokenspeed.runtime.plugins.registry.register_cache_recipe``.
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-165-_RECIPES: dict[CacheModelFamily, Callable[..., CacheRecipe]] = {
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-166-    "mha": partial(OrdinaryRecipe, family="mha"),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-167-    "mla": partial(OrdinaryRecipe, family="mla"),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-168-    "dsa": partial(OrdinaryRecipe, family="dsa"),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-169-    "msa": partial(OrdinaryRecipe, family="msa"),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py:170:    "qwen_gdn": QwenGDNRecipe,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-171-    "qwen4_exp": Qwen4ExpRecipe,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-172-    "mamba2": Mamba2Recipe,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-173-    "inkling": InklingRecipe,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-174-    "kimi_k3": KimiK3Recipe,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-175-    "glm53_flash": Glm53FlashRecipe,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-176-    "deepseek_v41": DeepseekV41Recipe,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-177-    "dots3_note": Dots3NoteRecipe,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-178-}
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-179-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-180-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-181-def prepare_cache_setup(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/setup.py-182-    *,
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-93-            return ()
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-94-        ple_layer_ids = tuple(self._text_config.short_conv_layer_ids)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-95-        context_field = qwen4_exp_ple_context_field(min(ple_layer_ids))
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-96-        fields = (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-97-            CacheFieldSpec(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-98-                context_field,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-99-                context_field,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-100-                (int(self._text_config.ngram_context_len),),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-101-                cache_dtype_name(torch.int64),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-102-                exact_page_stride=False,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-103-            ),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-104-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py:105:        conv_shape = tuple(self._text_config.short_conv_state_shape)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-106-        return fields + tuple(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-107-            CacheFieldSpec(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-108-                qwen4_exp_ple_conv_field(layer_id),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-109-                qwen4_exp_ple_conv_field(layer_id),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-110-                conv_shape,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-111-                cache_dtype_name(torch.bfloat16),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-112-                exact_page_stride=False,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-113-            )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-114-            for layer_id in ple_layer_ids
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-115-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-116-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen4_exp.py-117-    @cached_property
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-28-    CacheGroupDeclaration,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-29-)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-30-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-31-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-32-def kda_replay_supported(config: AttnConfig) -> bool:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-33-    """Return whether the target's dtype and recurrent geometry support replay."""
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-34-    from tokenspeed_kernel.ops.attention.kda import (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-35-        kda_recurrent_layout,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-36-        kda_replay_commit_supported,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-37-    )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-38-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-39-    linear = config.component(LinearAttnConfig)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py:40:    heads, head_dim, _ = linear.temporal_state_shape
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-41-    return bool(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-42-        kda_replay_commit_supported(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-43-            config.dtype,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-44-            recurrent_layout=kda_recurrent_layout(),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-45-            num_heads=heads,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-46-            head_dim=head_dim,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-47-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-48-    )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-49-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-50-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-51-def kda_verify_workspace_bytes(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-52-    config: AttnConfig,
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-77-        for field in fields
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-78-    )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-79-    if not replay_kda:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-80-        return (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-81-            config.max_bs
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-82-            * (draft_token_num + 1)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-83-            * sum(field.payload_bytes for field in state_fields)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-84-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-85-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-86-    from tokenspeed_kernel.ops.attention.kda import kda_batched_replay_uses_raw_gate
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-87-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-88-    linear = config.component(LinearAttnConfig)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py:89:    heads, head_dim, _ = linear.temporal_state_shape
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-90-    raw_gate = kda_batched_replay_uses_raw_gate(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-91-        config.dtype, num_heads=heads, head_dim=head_dim
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-92-    )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-93-    conv_fields = tuple(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py:94:        field for field in state_fields if field.field_id.endswith(".conv_state")
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-95-    )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-96-    conv_bytes = (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-97-        0
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-98-        if raw_gate
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-99-        else config.max_bs * sum(field.payload_bytes for field in conv_fields)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-100-    )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py:101:    row_bytes = (linear.conv_state_shape[0] + head_dim + heads) * config.dtype.itemsize
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-102-    row_bytes += (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-103-        heads
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-104-        * head_dim
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-105-        * (torch.bfloat16.itemsize if raw_gate else torch.float32.itemsize)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-106-    )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kda.py-107-    return conv_bytes + len(conv_fields) * config.max_bs * draft_token_num * row_bytes
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-23-    scatter_stored_dtype_name,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-24-)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-25-from tokenspeed.runtime.layers.attention.kv_cache.recipes.spec import (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-26-    FULL_ATTENTION,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-27-    LINEAR_ATTENTION,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-28-    STATE_LAYER_TYPES,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-29-)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-30-from tokenspeed.runtime.utils.env import envs
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-31-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-32-_QWEN_GDN_PREFIX_GRANULARITY = 128
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-33-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-34-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py:35:class QwenGDNRecipe(CacheRecipe):
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-36-    """Qwen3.5 full attention interleaved with GDN state, sharing one cache arena.
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-37-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-38-    Every group's page spans the whole parent block, so a parent is only fully
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-39-    used when all groups fill the same segments. Segment ``unit.i`` holds one
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-40-    SSM state or one K or V field of an attention layer. The attention layers
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-41-    form one KV group, the full-history group drafters write through; its
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-42-    ``n`` layers span ``2 * n`` segments, K and V of one layer adjacent. The
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-43-    state layers are dealt round-robin into as few groups as hold them at that
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-44-    many SSM states each, every conv window in a segment of its own that the
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-45-    KV group skips, so a state block carries no attention planes.
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-46-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-47-    Draft layers are attention layers of the one big model. One whose fields
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-48-    are a target attention layer's K and V byte for byte takes segments the
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-49-    state layers fill too; any other (wider, another dtype, MXFP8 scales)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-50-    pads the state groups by its own planes.
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-51-    """
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-52-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py:53:    family = "qwen_gdn"
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-54-    uses_paged_state_verify = True
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-55-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-56-    def __init__(self, **kwargs) -> None:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-57-        super().__init__(**kwargs)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-58-        if self.attn_config.kv_cache_mxfp8:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-59-            raise RuntimeError(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-60-                "Qwen cache buffer does not yet support the MXFP8 interleaved "
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-61-                "scale layout"
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-62-            )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-63-        linear_attn = self.attn_config.component(LinearAttnConfig)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-64-        if linear_attn is None:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-65-            if any(label in STATE_LAYER_TYPES for label in self.target_layer_types):
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-144-                )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-145-                for layer_id in (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-146-                    self.target_layer_types.index(FULL_ATTENTION),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-147-                    len(self.target_layer_types),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-148-                )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-149-            )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-150-            width = draft_bytes / target_bytes
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-151-        return 1.0 + 2.0 * self.num_draft_layers * max(width, 1.0) / num_full_attention
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-152-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-153-    # ---- decoder-layer fields ----
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-154-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-155-    @cached_property
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py:156:    def _state_shapes(self):
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-157-        """Per-rank GDN state shapes from the linear component.
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-158-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-159-        Dtypes are the recipe's contract: conv bf16, SSM per the engine env.
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-160-        """
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-161-        linear_attn = self.attn_config.component(LinearAttnConfig)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-162-        ssm_dtype = {
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-163-            "float32": torch.float32,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-164-            "bfloat16": torch.bfloat16,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-165-        }[envs.TOKENSPEED_MAMBA_SSM_DTYPE.get()]
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-166-        return (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py:167:            linear_attn.conv_state_shape,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-168-            cache_dtype_name(torch.bfloat16),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py:169:            linear_attn.temporal_state_shape,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-170-            cache_dtype_name(ssm_dtype),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-171-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-172-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-173-    @cached_property
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-174-    def _kv_shape(self) -> tuple[int, ...]:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-175-        spec = self.attn_config.component(SoftmaxAttnConfig)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-176-        return (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-177-            self.prefix_granularity,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-178-            max(spec.num_kv_heads // spec.attn_tp_size, 1),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-179-            spec.head_dim,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-180-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-181-
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-186-            self.prefix_granularity,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-187-            max(spec.num_kv_heads // spec.attn_tp_size, 1),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-188-            spec.head_dim,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-189-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-190-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-191-    @override
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-192-    def fields_for_layer(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-193-        self, layer_id: int, group_id: str, occurrence: int
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-194-    ) -> tuple[CacheFieldSpec, ...]:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-195-        if layer_id >= len(self.target_layer_types):
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-196-            return self._draft_fields(layer_id, occurrence)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-197-        if self.layer_types[layer_id] == LINEAR_ATTENTION:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py:198:            conv_shape, conv_dtype, ssm_shape, ssm_dtype = self._state_shapes
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-199-            return (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-200-                CacheFieldSpec(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-201-                    f"layer.{layer_id}.ssm",
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-202-                    f"unit.{occurrence}",
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-203-                    ssm_shape,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-204-                    ssm_dtype,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-205-                ),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-206-                CacheFieldSpec(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-207-                    f"layer.{layer_id}.conv",
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-208-                    f"conv.{occurrence}",
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-209-                    conv_shape,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-210-                    conv_dtype,
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-323-        linear_attn = self.attn_config.component(LinearAttnConfig)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-324-        from tokenspeed_kernel.ops.attention.gdn import (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-325-            gdn_tree_verify_needs_node_states,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-326-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-327-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-328-        nodes = int(self.server_args.speculative_num_draft_tokens)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-329-        if (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-330-            not self.draft_tree
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-331-            or not linear_attn.tree_node_state_workspace
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-332-            or not gdn_tree_verify_needs_node_states(nodes)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-333-        ):
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-334-            return 0
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py:335:        _, _, ssm_shape, ssm_dtype = self._state_shapes
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-336-        rows = self.attn_config.max_bs * nodes
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-337-        return rows * math.prod(ssm_shape) * cache_dtype_bytes(ssm_dtype)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-338-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-339-    def _replay_payload_bytes(self) -> int:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-340-        """Captured verify projections, stacked per GDN layer.
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-341-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-342-        Mirrors ``_GDNReplayWorkspace``: one key/value/a/b payload row per
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-343-        draft position in the model dtype, plus the per-layer fp32
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-344-        ``A_log``/``dt_bias`` pair.
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-345-        """
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py:346:        conv_shape, _, ssm_shape, _ = self._state_shapes
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-347-        num_v_heads, head_v_dim, _ = ssm_shape
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-348-        key_width = (conv_shape[0] - num_v_heads * head_v_dim) // 2
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-349-        row_width = key_width + num_v_heads * head_v_dim + 2 * num_v_heads
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-350-        num_layers = sum(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-351-            layer_type == LINEAR_ATTENTION for layer_type in self.target_layer_types
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-352-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-353-        rows = self.attn_config.max_bs * int(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-354-            self.server_args.speculative_num_draft_tokens
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-355-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-356-        payload = num_layers * rows * row_width * self.attn_config.dtype.itemsize
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-357-        parameters = num_layers * 2 * num_v_heads * torch.float32.itemsize
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/qwen35.py-358-        return payload + parameters
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-46-    from tokenspeed.runtime.layers.attention.kv_cache.hybrid_mha import (
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-47-        HybridMHATokenToKVPool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-48-        HybridMHATokenToKVPoolMXFP8,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-49-    )
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-50-    from tokenspeed.runtime.layers.attention.kv_cache.mha import (
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-51-        MHATokenToKVPool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-52-        MHATokenToKVPoolMXFP8,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-53-    )
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-54-
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-55-    by_family = {
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-56-        "mha": (MHATokenToKVPool, MHATokenToKVPoolMXFP8),
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-57-        "inkling": (HybridInklingTokenToKVPool, HybridInklingTokenToKVPoolMXFP8),
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py:58:        "qwen_gdn": (HybridMHATokenToKVPool, HybridMHATokenToKVPoolMXFP8),
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-59-        "qwen4_exp": (HybridMHATokenToKVPool, HybridMHATokenToKVPoolMXFP8),
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-60-        "mamba2": (HybridMHATokenToKVPool, HybridMHATokenToKVPoolMXFP8),
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-61-    }
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-62-    plain, scaled = by_family[family]
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-63-    return scaled if mxfp8 else plain
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-64-
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-65-
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-66-def _softmax_config(config: AttnConfig, family: str, expected: type):
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-67-    softmax_attn = config.component(SoftmaxAttnConfig)
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-68-    if not isinstance(softmax_attn, expected):
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-69-        raise TypeError(
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-70-            f"cache family {family!r} is incompatible with "
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-298-        rank=rank,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-299-        layer_types=spec.layer_types,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-300-        field_layer_offset=field_layer_offset,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-301-    )
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-302-
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-303-
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-304-# family -> the pool its recipe's plan binds to. A factory takes
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-305-# ``(spec, config, arena, *, num_layers, rank, field_layer_offset)``. Plugins
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-306-# add families via ``tokenspeed.runtime.plugins.registry.register_cache_pool``.
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-307-_POOL_FACTORIES: dict[str, Callable[..., CachePool]] = {
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-308-    "mha": _mha_shaped_pool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-309-    "inkling": _mha_shaped_pool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py:310:    "qwen_gdn": _mha_shaped_pool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-311-    "qwen4_exp": _mha_shaped_pool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-312-    "mamba2": _mha_shaped_pool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-313-    "mla": _mla_pool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-314-    "kimi_k3": _hybrid_kda_pool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-315-    "dsa": _dsa_pool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-316-    "dots3_note": _dots3_note_pool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-317-    "msa": _msa_pool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-318-    "glm53_flash": _glm53_flash_pool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-319-    "deepseek_v41": _deepseek_v41_pool,
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-320-}
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-321-
+python/tokenspeed/runtime/layers/attention/kv_cache/factory.py-322-
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-217-                    f"layer.{layer_id}.latent_kv",
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-218-                    plane_id,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-219-                    (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-220-                        GLM53_FLASH_LOGICAL_BLOCK_TOKENS,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-221-                        1,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-222-                        dsa.kv_lora_rank + dsa.qk_rope_head_dim,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-223-                    ),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-224-                    scatter_stored_dtype_name(config.kv_cache_dtype),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-225-                ),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-226-            )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-227-        return (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-228-            CacheFieldSpec(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py:229:                f"layer.{layer_id}.conv_state",
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-230-                plane_id,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py:231:                target_linear.conv_state_shape,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-232-                cache_dtype_name(torch.bfloat16),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-233-                exact_page_stride=False,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-234-            ),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-235-            CacheFieldSpec(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-236-                f"layer.{layer_id}.recurrent_state",
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-237-                plane_id,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py:238:                target_linear.temporal_state_shape,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-239-                cache_dtype_name(torch.float32),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-240-                exact_page_stride=False,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-241-            ),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-242-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-243-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-244-    base = group(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-245-        layer_types=layer_types,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-246-        group_ids=group_ids,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-247-        sliding_window_tokens=target_dsa.sliding_window_tokens,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-248-        prefix_granularity=GLM53_FLASH_LOGICAL_BLOCK_TOKENS,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-249-        fields_for_layer=fields_for_layer,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/glm53_flash.py-250-        pd_disaggregation_enabled=attn_config.pd_disaggregation_enabled,
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-56-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-57-        if len(layer_types) != kwargs["layer_num"]:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-58-            raise ValueError("cache layer types must cover every model layer")
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-59-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-60-        super().__init__(**kwargs)
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-61-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-62-    # A state layer has no k/v field planned and an attention layer has no
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-63-    # conv/ssm, so the plan's field list decides which planes a layer has.
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-64-    # State planes keep their planned shape: the GDN decode ABI reads them as
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-65-    # the plan lays them out.
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-66-    layer_plane_bindings: ClassVar[dict[str, str]] = {
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-67-        **MHATokenToKVPool.layer_plane_bindings,
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py:68:        "conv": "_conv_state",
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py:69:        "ssm": "_ssm_state",
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-70-    }
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-71-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-72-    def _bind_layer_planes(self) -> None:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-73-        super()._bind_layer_planes()
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-74-        self._state_buffers_by_layer = {
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py:75:            layer_id: (self._conv_state[layer_id], self._ssm_state[layer_id])
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-76-            for layer_id in self._state_layer_ids
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-77-        }
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-78-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-79-    @cached_property
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-80-    def state_group_by_layer(self) -> dict[int, str]:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-81-        """View-local state layer id -> its state cache group id."""
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-82-        return derive_state_groups_by_layer(
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-83-            self.arena,
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-84-            first_layer=self._field_layer_offset,
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-85-            num_layers=self.layer_num,
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-86-            state_layer_ids=self._state_layer_ids,
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-87-            state_field_suffixes=("conv", "ssm"),
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-90-    def get_state_buffers(self, layer_id: int) -> tuple[torch.Tensor, torch.Tensor]:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-91-        if layer_id not in self._state_layer_ids:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-92-            raise ValueError(f"layer {layer_id} is not a state layer")
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-93-        try:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-94-            return self._state_buffers_by_layer[layer_id]
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-95-        except KeyError as exc:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-96-            raise ValueError(f"layer {layer_id} has no bound state fields") from exc
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-97-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-98-    def get_component(self, layer_id: int, component_name: str) -> torch.Tensor:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-99-        if self.layerwise_load_tracker is not None:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-100-            self.layerwise_load_tracker.wait_for_layer(layer_id)
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-101-        conv, recurrent = self.get_state_buffers(layer_id)
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py:102:        if component_name == "conv_state":
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-103-            return conv
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-104-        if component_name == "recurrent_state":
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-105-            return recurrent
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-106-        raise ValueError(f"unknown state component {component_name!r}")
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-107-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-108-    def zero_new_blocks(self, new_page_ids: Mapping[str, np.ndarray]) -> None:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-109-        if new_page_ids:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-110-            self.arena.zero_blocks(new_page_ids)
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-111-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-112-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-113-class HybridMHATokenToKVPoolMXFP8(
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_mha.py-114-    HybridMHATokenToKVPool,
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-59-        if len(self._layer_types) != kwargs["layer_num"]:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-60-            raise ValueError("cache layer types must cover every model layer")
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-61-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-62-        super().__init__(**kwargs)
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-63-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-64-    # A KDA layer has conv/recurrent planes planned and an MLA layer has a
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-65-    # latent plane; the plan's field list decides per layer. Latent-page
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-66-    # contiguity is a plan invariant (exact_page_stride).
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-67-    # State planes keep their planned shape: the KDA decode ABI reads them
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-68-    # as the plan lays them out.
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-69-    layer_plane_bindings: ClassVar[dict[str, str]] = {
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-70-        **MLATokenToKVPool.layer_plane_bindings,
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py:71:        "conv_state": "_conv_state",
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-72-        "recurrent_state": "_recurrent_state",
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-73-    }
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-74-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-75-    def _bind_layer_planes(self) -> None:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-76-        if self.quant_method == "per_token_head":
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-77-            raise ValueError("KDA cache does not support per-token-head KV")
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-78-        super()._bind_layer_planes()
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-79-        # A state layer with no planned planes belongs to another pipeline
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-80-        # stage (the PP-narrowed plan drops its fields); this view never
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-81-        # executes it, so it gets no entry.
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-82-        self._state_buffers_by_layer = {
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py:83:            layer_id: (self._conv_state[layer_id], self._recurrent_state[layer_id])
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-84-            for layer_id, label in enumerate(self._layer_types)
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py:85:            if label in STATE_LAYER_TYPES and self._conv_state[layer_id] is not None
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-86-        }
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-87-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-88-    @cached_property
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-89-    def state_group_by_layer(self) -> dict[int, str]:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-90-        """View-local state layer id -> its state cache group id."""
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-91-        return derive_state_groups_by_layer(
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-92-            self.arena,
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-93-            first_layer=self._field_layer_offset,
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-94-            num_layers=self.layer_num,
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-95-            state_layer_ids=(
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-96-                layer_id
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-97-                for layer_id, label in enumerate(self._layer_types)
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-98-                if label in STATE_LAYER_TYPES
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-99-            ),
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py:100:            state_field_suffixes=("conv_state", "recurrent_state"),
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-101-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-102-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-103-    def get_component(self, layer_id: int, component_name: str) -> torch.Tensor:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-104-        """Return one KDA state plane. Latent KV is read via ``kv_buffer``."""
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-105-        if self.layerwise_load_tracker is not None:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-106-            self.layerwise_load_tracker.wait_for_layer(layer_id)
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-107-        try:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-108-            conv, recurrent = self._state_buffers_by_layer[layer_id]
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-109-        except KeyError as exc:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-110-            raise ValueError(f"layer {layer_id} has no KDA state") from exc
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py:111:        if component_name == "conv_state":
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-112-            return conv
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-113-        if component_name == "recurrent_state":
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-114-            return recurrent
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-115-        raise ValueError(f"unknown KDA component {component_name!r}")
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-116-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-117-    def get_state_buffers(self, layer_id: int) -> tuple[torch.Tensor, torch.Tensor]:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-118-        try:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-119-            return self._state_buffers_by_layer[layer_id]
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-120-        except KeyError as exc:
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-121-            raise ValueError(f"layer {layer_id} has no KDA state") from exc
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-122-
+python/tokenspeed/runtime/layers/attention/kv_cache/hybrid_kda.py-123-    def zero_new_blocks(self, new_page_ids: Mapping[str, np.ndarray]) -> None:
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-89-    def _replay_commit_supported(self, dtype: torch.dtype) -> bool:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-90-        from tokenspeed_kernel.ops.attention.mamba2 import (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-91-            mamba2_replay_commit_supported,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-92-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-93-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-94-        return mamba2_replay_commit_supported(dtype)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-95-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-96-    @override
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-97-    def fields_for_layer(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-98-        self, layer_id: int, group_id: str, occurrence: int
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-99-    ) -> tuple[CacheFieldSpec, ...]:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-100-        if self.layer_types[layer_id] == LINEAR_ATTENTION:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py:101:            conv_shape, conv_dtype, ssm_shape, ssm_dtype = self._state_shapes
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-102-            return (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-103-                CacheFieldSpec(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-104-                    f"layer.{layer_id}.ssm", f"unit.{occurrence}", ssm_shape, ssm_dtype
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-105-                ),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-106-                CacheFieldSpec(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-107-                    f"layer.{layer_id}.conv",
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-108-                    f"conv.{occurrence}",
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-109-                    conv_shape,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-110-                    conv_dtype,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-111-                    exact_page_stride=False,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-112-                ),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/mamba2.py-113-            )
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-509-        return False
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-510-    from tokenspeed_kernel.ops.attention.kda import (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-511-        kda_batched_replay_uses_raw_gate,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-512-        kda_recurrent_layout,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-513-        kda_replay_commit_supported,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-514-    )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-515-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-516-    linear_attn = attn_config.component(LinearAttnConfig)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-517-    if linear_attn is None:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-518-        # No linear attention, so no conv slab for verify scratch to alias.
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-519-        return False
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-520-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py:521:    heads, head_dim, _ = linear_attn.temporal_state_shape
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-522-    return bool(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-523-        kda_replay_commit_supported(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-524-            attn_config.dtype,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-525-            recurrent_layout=kda_recurrent_layout(),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-526-            num_heads=heads,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-527-            head_dim=head_dim,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-528-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-529-        and kda_batched_replay_uses_raw_gate(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-530-            attn_config.dtype, num_heads=heads, head_dim=head_dim
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-531-        )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/base.py-532-    )
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-216-        if cache_dtype not in (torch.float8_e4m3fn, torch.bfloat16):
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-217-            raise ValueError(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-218-                "Kimi-K3 cache requires mla_cache_dtype in "
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-219-                f"{{torch.float8_e4m3fn, torch.bfloat16}}, got {cache_dtype}"
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-220-            )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-221-        if self.attn_config.kv_cache_quant_method == "per_token_head":
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-222-            raise ValueError("Kimi-K3 cache does not support per_token_head MLA cache")
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-223-        if getattr(self._text_config, "mla_use_nope", None) is not True:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-224-            raise ValueError("Kimi-K3 cache requires mla_use_nope=True")
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-225-        linear_attn = self.attn_config.component(LinearAttnConfig)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-226-        if linear_attn is None:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-227-            raise ValueError("Kimi-K3 cache requires a linear-attention component")
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py:228:        return (linear_attn.conv_state_shape, linear_attn.temporal_state_shape)
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-229-
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-230-    @override
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-231-    def fields_for_layer(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-232-        self, layer_id: int, group_id: str, occurrence: int
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-233-    ) -> tuple[CacheFieldSpec, ...]:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-234-        plane_id = f"slot.{occurrence}"
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-235-        if group_id == FULL_ATTENTION:
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-236-            config = (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-237-                self.attn_config
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-238-                if layer_id < self.num_target_layers
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-239-                else self.draft_attn_config
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-240-            )
+--
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-242-            latent_width = spec.kv_lora_rank + spec.qk_rope_head_dim
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-243-            return (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-244-                CacheFieldSpec(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-245-                    f"layer.{layer_id}.latent_kv",
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-246-                    plane_id,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-247-                    (self.prefix_granularity, 1, latent_width),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-248-                    scatter_stored_dtype_name(config.kv_cache_dtype),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-249-                ),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-250-            )
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-251-        conv_shape, recurrent_shape = self._kda_shapes
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-252-        return (
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-253-            CacheFieldSpec(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py:254:                f"layer.{layer_id}.conv_state",
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-255-                plane_id,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-256-                conv_shape,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-257-                cache_dtype_name(torch.bfloat16),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-258-                exact_page_stride=False,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-259-            ),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-260-            CacheFieldSpec(
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-261-                f"layer.{layer_id}.recurrent_state",
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-262-                plane_id,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-263-                recurrent_shape,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-264-                cache_dtype_name(torch.float32),
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-265-                exact_page_stride=False,
+python/tokenspeed/runtime/layers/attention/kv_cache/recipes/kimi_k3.py-266-            ),

@@ -1,0 +1,990 @@
+=== NPU PLUGIN LOAD ===
+# Copyright (c) 2026 LightSeek Foundation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""Ascend-specific kernels for TokenSpeed."""
+# Copyright (c) 2026 LightSeek Foundation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""Ascend operator implementations."""
+=== NPU MHA ===
+# Copyright (c) 2026 LightSeek Foundation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""Ascend multi-head attention kernels."""
+
+from __future__ import annotations
+
+import math
+
+import torch
+import torch_npu
+
+_CAUSAL_MASKS: dict[torch.device, torch.Tensor] = {}
+
+
+def _causal_mask(device: torch.device) -> torch.Tensor:
+    mask = _CAUSAL_MASKS.get(device)
+    if mask is None:
+        mask = torch.triu(
+            torch.ones((2048, 2048), dtype=torch.bool, device=device), diagonal=1
+        )
+        _CAUSAL_MASKS[device] = mask
+    return mask
+
+
+def _scale(q: torch.Tensor, softmax_scale: float | None) -> float:
+    return softmax_scale if softmax_scale is not None else 1.0 / math.sqrt(q.shape[-1])
+
+
+def _check_options(
+    *,
+    window_left: int,
+    logit_cap: float,
+    sinks: torch.Tensor | None,
+    return_lse: bool,
+) -> None:
+    if window_left >= 0:
+        raise NotImplementedError("Ascend MHA does not support sliding windows")
+    if logit_cap:
+        raise NotImplementedError("Ascend MHA does not support logit caps")
+    if sinks is not None:
+        raise NotImplementedError("Ascend MHA does not support attention sinks")
+    if return_lse:
+        raise NotImplementedError("Ascend MHA does not return LSE")
+
+
+def mha_prefill(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    cu_seqlens: torch.Tensor,
+    cu_seqlens_cpu: list[int],
+    max_seqlen: int,
+    window_left: int = -1,
+    logit_cap: float = 0.0,
+    sinks: torch.Tensor | None = None,
+    return_lse: bool = False,
+    softmax_scale: float | None = None,
+) -> torch.Tensor:
+    """Run causal variable-length MHA over uncached K/V."""
+    del cu_seqlens, max_seqlen
+    _check_options(
+        window_left=window_left,
+        logit_cap=logit_cap,
+        sinks=sinks,
+        return_lse=return_lse,
+    )
+    output, _ = torch_npu.npu_fused_infer_attention_score(
+        q,
+        k,
+        v,
+        atten_mask=_causal_mask(q.device),
+        actual_seq_lengths=cu_seqlens_cpu[1:],
+        actual_seq_lengths_kv=cu_seqlens_cpu[1:],
+        num_heads=q.shape[1],
+        num_key_value_heads=k.shape[1],
+        scale=_scale(q, softmax_scale),
+        input_layout="TND",
+        sparse_mode=2,
+    )
+    return output
+
+
+def mha_extend_with_kvcache(
+    q: torch.Tensor,
+    cu_seqlens_q: torch.Tensor,
+    cu_seqlens_kv: torch.Tensor,
+    k_cache: torch.Tensor,
+    v_cache: torch.Tensor,
+    page_table: torch.Tensor,
+    cache_seqlens: torch.Tensor,
+    max_seqlen_q: int,
+    max_seqlen_k: int,
+    is_causal: bool = False,
+    window_left: int = -1,
+    logit_cap: float = 0.0,
+    sinks: torch.Tensor | None = None,
+    return_lse: bool = False,
+    softmax_scale: float | None = None,
+    q_scale: torch.Tensor | None = None,
+    k_scale: torch.Tensor | None = None,
+    v_scale: torch.Tensor | None = None,
+    enable_pdl: bool = False,
+) -> torch.Tensor:
+    """Run variable-length MHA over a paged K/V cache."""
+    del cu_seqlens_kv, max_seqlen_q, max_seqlen_k, enable_pdl
+    _check_options(
+        window_left=window_left,
+        logit_cap=logit_cap,
+        sinks=sinks,
+        return_lse=return_lse,
+    )
+    if q_scale is not None or k_scale is not None or v_scale is not None:
+        raise NotImplementedError("Ascend MHA does not support scaled FP8 cache")
+
+    output, _ = torch_npu.npu_fused_infer_attention_score(
+        q,
+        k_cache.flatten(2),
+        v_cache.flatten(2),
+        atten_mask=_causal_mask(q.device) if is_causal else None,
+        actual_seq_lengths=cu_seqlens_q[1:],
+        actual_seq_lengths_kv=cache_seqlens,
+        block_table=page_table,
+        num_heads=q.shape[1],
+        num_key_value_heads=k_cache.shape[2],
+        scale=_scale(q, softmax_scale),
+        input_layout="TND",
+        sparse_mode=3 if is_causal else 0,
+        block_size=k_cache.shape[1],
+    )
+    return output
+
+
+def mha_decode_with_kvcache(
+    q: torch.Tensor,
+    k_cache: torch.Tensor,
+    v_cache: torch.Tensor,
+    page_table: torch.Tensor,
+    cache_seqlens: torch.Tensor,
+    max_seqlen_k: int,
+    max_seqlen_q: int = 1,
+    window_left: int = -1,
+    logit_cap: float = 0.0,
+    sinks: torch.Tensor | None = None,
+    return_lse: bool = False,
+    softmax_scale: float | None = None,
+    q_scale: torch.Tensor | None = None,
+    k_scale: torch.Tensor | None = None,
+    v_scale: torch.Tensor | None = None,
+    enable_pdl: bool = False,
+) -> torch.Tensor:
+    """Run fixed-shape, graph-capturable decode over a paged K/V cache."""
+    _check_options(
+        window_left=window_left,
+        logit_cap=logit_cap,
+        sinks=sinks,
+        return_lse=return_lse,
+    )
+    if max_seqlen_q != 1:
+        raise NotImplementedError("Ascend MHA decode supports one query per request")
+    if q_scale is not None or k_scale is not None or v_scale is not None:
+        raise NotImplementedError("Ascend MHA does not support scaled FP8 cache")
+
+    del max_seqlen_k, enable_pdl
+    batch_size = cache_seqlens.shape[0]
+    actual_seq_lengths_kv = (
+        [1] * batch_size if torch.npu.is_current_stream_capturing() else cache_seqlens
+    )
+    output, _ = torch_npu.npu_fused_infer_attention_score(
+        q.reshape(batch_size, 1, -1),
+        k_cache.flatten(2),
+        v_cache.flatten(2),
+        actual_seq_lengths_kv=actual_seq_lengths_kv,
+        block_table=page_table,
+        num_heads=q.shape[1],
+        num_key_value_heads=k_cache.shape[2],
+        scale=_scale(q, softmax_scale),
+        input_layout="BSH",
+        block_size=k_cache.shape[1],
+    )
+    return output.reshape_as(q)
+
+
+__all__ = [
+    "mha_decode_with_kvcache",
+    "mha_extend_with_kvcache",
+    "mha_prefill",
+]
+=== NPU RMSNORM / ROPE / ACTIVATION ===
+# Copyright (c) 2026 LightSeek Foundation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""Ascend normalization operators."""
+
+from __future__ import annotations
+
+import torch
+import torch_npu
+
+
+def rmsnorm(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    eps: float,
+    residual: torch.Tensor | None = None,
+    out: torch.Tensor | None = None,
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    """Apply RMSNorm, optionally adding and updating a residual tensor."""
+    if x.shape[0] == 0:
+        result = x if out is None else out
+        return (result, residual) if residual is not None else result
+    if residual is not None:
+        result, _, residual_out = torch_npu.npu_add_rms_norm(
+            x, residual, weight, epsilon=eps
+        )
+        residual.copy_(residual_out)
+        return result, residual
+    result, _ = torch_npu.npu_rms_norm(x, weight, epsilon=eps)
+    if out is not None:
+        out.copy_(result)
+        result = out
+    return result
+
+
+def qk_rmsnorm(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    q_weight: torch.Tensor,
+    k_weight: torch.Tensor,
+    eps: float,
+    enable_pdl: bool = False,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Apply per-head RMSNorm to query and key tensors."""
+    del enable_pdl
+    head_dim = q_weight.numel()
+    if k_weight.numel() != head_dim:
+        raise ValueError("q and k weights must have the same head dimension")
+    if q.shape[-1] % head_dim or k.shape[-1] % head_dim:
+        raise ValueError("q and k widths must be divisible by the head dimension")
+
+    q_shape, k_shape = q.shape, k.shape
+    q_heads = q.reshape(-1, q.shape[-1] // head_dim, head_dim)
+    k_heads = k.reshape(-1, k.shape[-1] // head_dim, head_dim)
+    q_scale = torch.rsqrt(q_heads.float().square().mean(-1, keepdim=True) + eps)
+    k_scale = torch.rsqrt(k_heads.float().square().mean(-1, keepdim=True) + eps)
+    q_out = (q_heads * q_scale.to(q.dtype) * q_weight).reshape(q_shape)
+    k_out = (k_heads * k_scale.to(k.dtype) * k_weight).reshape(k_shape)
+    return q_out, k_out
+
+
+__all__ = ["qk_rmsnorm", "rmsnorm"]
+# Copyright (c) 2026 LightSeek Foundation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""Ascend rotary embedding operator."""
+
+from __future__ import annotations
+
+import torch
+import torch_npu
+
+
+def apply_rope(
+    *,
+    positions: torch.Tensor,
+    q: torch.Tensor,
+    k: torch.Tensor,
+    head_size: int,
+    cos_sin_cache: torch.Tensor,
+    is_neox: bool = True,
+    q_rope_out: torch.Tensor | None = None,
+    k_rope_out: torch.Tensor | None = None,
+) -> None:
+    """Apply RoPE to Q and K, writing into outputs or the inputs in place."""
+    q_out, k_out = torch_npu.npu_mrope(
+        positions,
+        q,
+        k,
+        cos_sin_cache.to(q.dtype),
+        head_size,
+        mrope_section=[0, 0, 0],
+        rotary_mode="half" if is_neox else "interleave",
+    )
+    (q if q_rope_out is None else q_rope_out).copy_(q_out)
+    (k if k_rope_out is None else k_rope_out).copy_(k_out)
+
+
+__all__ = ["apply_rope"]
+# Copyright (c) 2026 LightSeek Foundation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""Ascend fused activation operators."""
+
+from functools import lru_cache
+
+import torch
+import torch_npu
+
+
+def silu_and_mul(x: torch.Tensor, out: torch.Tensor | None = None) -> torch.Tensor:
+    """Apply SwiGLU to last-dimension [gate, up], optionally writing ``out``."""
+    if x.numel() == 0:
+        if out is not None:
+            return out
+        return x.new_empty(x.shape[:-1] + (x.shape[-1] // 2,))
+    result = torch_npu.npu_swiglu(x, dim=-1)
+    if out is not None:
+        out.copy_(result)
+        return out
+    return result
+
+
+def dequant_silu_and_mul_quant(x, weight_scale, activation_scale):
+    """Dequantize INT32 [gate,up], apply SwiGLU and dynamically quantize rows."""
+    if x.numel() == 0:
+        return (
+            x.new_empty(x.shape[:-1] + (x.shape[-1] // 2,), dtype=torch.int8),
+            x.new_empty(x.shape[:-1], dtype=torch.float32),
+        )
+    values, scales = torch_npu.npu_dequant_swiglu_quant(
+        x.reshape(-1, x.shape[-1]),
+        weight_scale=weight_scale,
+        activation_scale=activation_scale.reshape(-1),
+        activate_left=True,
+        quant_mode=1,
+    )
+    return (
+        values.reshape(x.shape[:-1] + (x.shape[-1] // 2,)),
+        scales.reshape(x.shape[:-1]),
+    )
+
+
+@lru_cache(maxsize=None)
+def _unit_smooth_scale(device: torch.device, width: int) -> torch.Tensor:
+    # CANN 9.0's SwiGluQuant reads this optional input unconditionally.
+    # Keep the identity tensor alive across graph capture/replay; do not create
+    # a Fill kernel on every activation call.
+    return torch.ones((1, width), device=device, dtype=torch.float32)
+
+
+def silu_and_mul_quant(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Fused floating SwiGLU + INT8 quantization with dequantization scales."""
+    if x.numel() == 0:
+        return (
+            x.new_empty(x.shape[:-1] + (x.shape[-1] // 2,), dtype=torch.int8),
+            x.new_empty(x.shape[:-1], dtype=torch.float32),
+        )
+    values, inverse_scale = torch_npu.npu_swiglu_quant(
+        x,
+        smooth_scales=_unit_smooth_scale(x.device, x.shape[-1] // 2),
+        activate_left=True,
+        quant_mode=1,
+    )
+    # Unlike DynamicQuant/DequantSwigluQuant this op returns 127/amax.
+    return values, inverse_scale.reciprocal()
+=== GENERIC SIGMOID MUL REGISTRATION ===
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/triton.py:35:    "fused_gate_sigmoid_mul_add",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/triton.py:39:    "sigmoid_mul",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/triton.py:49:def _fused_gate_sigmoid_mul_add_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/triton.py:87:def fused_gate_sigmoid_mul_add(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/triton.py:145:    _fused_gate_sigmoid_mul_add_kernel[grid](
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/triton.py:160:def _sigmoid_mul_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/triton.py:199:def sigmoid_mul(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/activation/triton.py:286:    _sigmoid_mul_kernel[grid](
+=== GATED RMSNORM IMPLEMENTATION ===
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright (c) 2026 LightSeek Foundation
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, Songlin Yang, Yu Zhang, Zhiyuan Li
+# SPDX-FileCopyrightText: Copyright (c) 2024, Tri Dao
+#
+# Copyright (c) 2026 LightSeek Foundation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""Gated RMSNorm for the linear-attention blocks: ``norm(x) * gate(z)`` or
+``norm(x * gate(z))`` in one Triton launch, with ``silu`` or ``sigmoid`` as
+the gate. Inference only (no backward)."""
+
+import torch
+from tokenspeed_kernel.platform import pdl_enabled
+
+from tokenspeed.runtime.utils.triton import tl, triton
+
+# Rows each program normalizes when one warp covers a row.
+ROWS_PER_PROGRAM = 4
+
+
+@triton.heuristics({"HAS_Z": lambda args: args["Z"] is not None})
+@triton.jit
+def _rms_norm_fwd_kernel(
+    X,  # pointer to the input
+    Y,  # pointer to the output
+    W,  # pointer to the weights
+    Z,  # pointer to the other branch
+    FP8_SCALE,  # static FP8 dequant scale of the consumer
+    stride_x_row,  # how much to increase the pointer when moving by 1 row
+    stride_y_row,
+    stride_z_row,
+    M,  # number of rows in X
+    N,  # number of columns in X
+    eps,  # epsilon to avoid division by zero
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
+    HAS_Z: tl.constexpr,
+    NORM_BEFORE_GATE: tl.constexpr,
+    SIGMOID_GATE: tl.constexpr,
+    ENABLE_PDL: tl.constexpr,
+    WEIGHTS_INDEPENDENT: tl.constexpr,
+    OUT_FP8: tl.constexpr,
+    SHARED_WEIGHT: tl.constexpr,
+):
+    # Each program normalizes BLOCK_M rows of one group, one warp per row.
+    rows = tl.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)
+    group = tl.program_id(1)
+    cols = tl.arange(0, BLOCK_N)
+    col_mask = cols < N
+    mask = (rows < M)[:, None] & col_mask[None, :]
+    # Row offsets in int64: z may be a view with a projection-wide row stride.
+    rows = rows.to(tl.int64)
+    offsets = group * N + cols[None, :]
+    if not SHARED_WEIGHT:
+        W += group * N
+    if WEIGHTS_INDEPENDENT:
+        w = tl.load(W + cols, mask=col_mask).to(tl.float32)
+    if ENABLE_PDL:
+        tl.extra.cuda.gdc_wait()
+        tl.extra.cuda.gdc_launch_dependents()
+    if not WEIGHTS_INDEPENDENT:
+        w = tl.load(W + cols, mask=col_mask).to(tl.float32)
+    x = tl.load(X + rows[:, None] * stride_x_row + offsets, mask=mask, other=0.0).to(
+        tl.float32
+    )
+    if HAS_Z:
+        z = tl.load(Z + rows[:, None] * stride_z_row + offsets, mask=mask).to(
+            tl.float32
+        )
+    if HAS_Z and not NORM_BEFORE_GATE:
+        x *= tl.sigmoid(z) if SIGMOID_GATE else z * tl.sigmoid(z)
+    xbar = tl.where(mask, x, 0.0)
+    var = tl.sum(xbar * xbar, axis=1) / N
+    rstd = 1 / tl.sqrt(var + eps)
+    y = x * rstd[:, None] * w[None, :]
+    if HAS_Z and NORM_BEFORE_GATE:
+        y *= tl.sigmoid(z) if SIGMOID_GATE else z * tl.sigmoid(z)
+    if OUT_FP8:
+        # Quantize the activation-dtype output, as the consumer would.
+        y = y.to(X.dtype.element_ty).to(tl.float32)
+        y = tl.clamp(y * (1.0 / tl.load(FP8_SCALE).to(tl.float32)), -448.0, 448.0)
+    tl.store(
+        Y + rows[:, None] * stride_y_row + offsets, y.to(Y.dtype.element_ty), mask=mask
+    )
+
+
+def rmsnorm_fn(
+    x,
+    weight,
+    z=None,
+    eps=1e-6,
+    group_size=None,
+    norm_before_gate=True,
+    sigmoid_gate=False,
+    *,
+    weights_independent: bool,
+    fp8_scale: torch.Tensor | None = None,
+):
+    """If z is not None, we do norm(x) * silu(z) if norm_before_gate, else
+    norm(x * silu(z)); ``sigmoid_gate`` swaps silu(z) for sigmoid(z). With
+    ``group_size`` set, each group of that many features is normalized on its
+    own (``None`` means one group over the whole last dim).
+    A ``weight`` of ``group_size`` features is shared by every group.
+
+    ``weights_independent`` promises the weight is already visible before the
+    preceding PDL producer starts, permitting its load before the input wait.
+    Pass False for producer-written weights. Returns a tensor shaped like x,
+    quantized to static FP8 with ``fp8_scale`` when one is given.
+    """
+    enable_pdl = pdl_enabled()
+    x_shape_og = x.shape
+    x = x.reshape(-1, x.shape[-1])
+    if x.stride(-1) != 1:
+        x = x.contiguous()
+    if z is not None:
+        assert z.shape == x_shape_og
+        z = z.reshape(-1, z.shape[-1])
+        if z.stride(-1) != 1:
+            z = z.contiguous()
+    weights_independent = weights_independent and weight.is_contiguous()
+    weight = weight.contiguous()
+
+    M, N = x.shape
+    if group_size is None:
+        group_size = N
+    assert N % group_size == 0
+    ngroups = N // group_size
+    assert weight.shape in ((N,), (group_size,))
+    out = torch.empty_like(
+        x, dtype=x.dtype if fp8_scale is None else torch.float8_e4m3fn
+    )
+    # Less than 64KB per feature: enqueue fused kernel
+    MAX_FUSED_SIZE = 65536 // x.element_size()
+    BLOCK_N = min(MAX_FUSED_SIZE, triton.next_power_of_2(group_size))
+    if group_size > BLOCK_N:
+        raise RuntimeError("This layer norm doesn't support feature dim >= 64KB.")
+    # heuristics for number of warps
+    num_warps = min(max(BLOCK_N // 256, 1), 8)
+    block_m = ROWS_PER_PROGRAM if num_warps == 1 else 1
+    grid = (triton.cdiv(M, block_m), ngroups)
+    with torch.cuda.device(x.device.index):
+        _rms_norm_fwd_kernel[grid](
+            x,
+            out,
+            weight,
+            z,
+            fp8_scale,
+            x.stride(0),
+            out.stride(0),
+            z.stride(0) if z is not None else 0,
+            M,
+            group_size,
+            eps,
+            BLOCK_M=block_m,
+            BLOCK_N=BLOCK_N,
+            NORM_BEFORE_GATE=norm_before_gate,
+            SIGMOID_GATE=sigmoid_gate,
+            num_warps=block_m * num_warps,
+            ENABLE_PDL=enable_pdl,
+            WEIGHTS_INDEPENDENT=weights_independent,
+            OUT_FP8=fp8_scale is not None,
+            SHARED_WEIGHT=weight.shape[0] != N,
+            **({"launch_pdl": True} if enable_pdl else {}),
+        )
+    return out.reshape(x_shape_og)
+
+
+class RMSNorm(torch.nn.Module):
+
+    def __init__(
+        self,
+        hidden_size,
+        eps=1e-5,
+        group_size=None,
+        norm_before_gate=True,
+        device=None,
+        dtype=None,
+        sigmoid_gate=False,
+    ):
+        """If group_size is not None, we do GroupNorm with each group having group_size elements.
+        group_size=None is equivalent to group_size=hidden_size (i.e. there's only 1 group).
+        """
+        factory_kwargs = {"device": device, "dtype": dtype}
+        super().__init__()
+        self.eps = eps
+        self.weight = torch.nn.Parameter(torch.empty(hidden_size, **factory_kwargs))
+        self.group_size = group_size
+        self.norm_before_gate = norm_before_gate
+        self.sigmoid_gate = sigmoid_gate
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        torch.nn.init.ones_(self.weight)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        z: torch.Tensor | None = None,
+        fp8_scale: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """If z is not None, we do norm(x) * silu(z) if norm_before_gate, else
+        norm(x * silu(z)); ``sigmoid_gate`` swaps silu(z) for sigmoid(z).
+        ``fp8_scale`` quantizes the output for a static-FP8 consumer."""
+        return rmsnorm_fn(
+            x,
+            self.weight,
+            z=z,
+            eps=self.eps,
+            group_size=self.group_size,
+            norm_before_gate=self.norm_before_gate,
+            sigmoid_gate=self.sigmoid_gate,
+            weights_independent=True,
+            fp8_scale=fp8_scale,
+        )
+=== CAUSAL CONV1D IMPLEMENTATION ===
+# SPDX-License-Identifier: MIT AND Apache-2.0
+# SPDX-FileCopyrightText: Copyright (c) 2026 LightSeek Foundation
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+# SPDX-FileCopyrightText: Copyright (c) 2024, Tri Dao
+#
+# Copyright (c) 2026 LightSeek Foundation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+
+import torch
+from tokenspeed_kernel.ops.attention.gdn.triton import (
+    CausalConv1dPrefillMetadata,
+)
+from tokenspeed_kernel.platform import pdl_enabled
+from tokenspeed_kernel.registry import Priority, register_kernel
+from tokenspeed_kernel.selection import select_kernel
+from tokenspeed_kernel.signature import (
+    dense_tensor_format,
+    format_signature,
+    format_signatures,
+)
+
+from tokenspeed.runtime.utils.triton import tl, triton
+
+PAD_SLOT_ID = -1
+
+
+@triton.jit(
+    do_not_specialize=["seqlen"],
+    do_not_specialize_on_alignment=["token_chunk_offset_ptr"],
+)
+def _causal_conv1d_fwd_kernel(  # continuous batching
+    # Pointers to matrices
+    x_ptr,  # (dim, cu_seqlen) holding `batch` of actual sequences + padded sequences
+    w_ptr,  # (dim, width)
+    bias_ptr,
+    initial_states_ptr,  # conv_states_ptr
+    cache_indices_ptr,  # conv_state_indices_ptr
+    has_initial_states_ptr,
+    query_start_loc_ptr,
+    batch_ptr,
+    token_chunk_offset_ptr,
+    o_ptr,  # (dim, seqlen) - actually pointing to x_ptr
+    # Matrix dimensions
+    dim: tl.constexpr,
+    seqlen: tl.int32,  # cu_seqlen
+    num_cache_lines: tl.constexpr,
+    # Strides
+    stride_x_seq: tl.constexpr,  # stride to get to next sequence,
+    stride_x_dim: tl.constexpr,  # stride to get to next feature-value,
+    stride_x_token: tl.constexpr,  # stride to get to next token (same feature-index, same sequence-index)
+    stride_w_dim: tl.constexpr,  # stride to get to next dim-axis value
+    stride_w_width: tl.constexpr,  # stride to get to next width-axis value
+    stride_istate_seq: tl.constexpr,
+    stride_istate_dim: tl.constexpr,
+    stride_istate_token: tl.constexpr,
+    stride_o_seq: tl.constexpr,
+    stride_o_dim: tl.constexpr,
+    stride_o_token,
+    # others
+    pad_slot_id: tl.constexpr,
+    # Meta-parameters
+    HAS_BIAS: tl.constexpr,
+    KERNEL_WIDTH: tl.constexpr,
+    SILU_ACTIVATION: tl.constexpr,
+    HAS_INITIAL_STATES: tl.constexpr,
+    HAS_CACHE: tl.constexpr,
+    IS_CONTINUOUS_BATCHING: tl.constexpr,
+    USE_PAD_SLOT: tl.constexpr,
+    NP2_STATELEN: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
+    ENABLE_PDL: tl.constexpr,
+):
+    if ENABLE_PDL:
+        tl.extra.cuda.gdc_wait()
+        # Release successor setup; its wait still guards all dependent reads.
+        tl.extra.cuda.gdc_launch_dependents()
+    conv_states_ptr = initial_states_ptr
+    conv_state_indices_ptr = cache_indices_ptr
+    stride_conv_state_seq = stride_istate_seq
+    stride_conv_state_dim = stride_istate_dim
+    stride_conv_state_tok = stride_istate_token
+    state_len = (
+        KERNEL_WIDTH - 1
+    )  # can be passed via argument if it's not the same as this value
+
+    # one program handles one chunk in a single sequence
+    # rather than mixing sequences - to make updating initial_states across sequences efficiently
+
+    # single-sequence id
+    idx_seq = tl.load(batch_ptr + tl.program_id(0))
+    chunk_offset = tl.load(token_chunk_offset_ptr + tl.program_id(0))
+
+    # BLOCK_N elements along the feature-dimension (channel)
+    idx_feats = tl.program_id(1) * BLOCK_N + tl.arange(0, BLOCK_N)
+
+    if idx_seq == pad_slot_id:
+        return
+
+    # Token offsets times a projection-wide row stride outgrow int32.
+    sequence_start_index = tl.load(query_start_loc_ptr + idx_seq).to(tl.int64)
+    sequence_end_index = tl.load(query_start_loc_ptr + idx_seq + 1)
+    # find the actual sequence length
+    seqlen = sequence_end_index - sequence_start_index
+
+    token_offset = BLOCK_M * chunk_offset.to(tl.int64)
+    segment_len = min(BLOCK_M, seqlen - token_offset)
+
+    # base of the sequence
+    x_base = (
+        x_ptr + sequence_start_index * stride_x_token + idx_feats * stride_x_dim
+    )  # [BLOCK_N,]
+
+    if IS_CONTINUOUS_BATCHING:
+        # cache_idx
+        conv_state_batch_coord = tl.load(conv_state_indices_ptr + idx_seq).to(tl.int64)
+    else:
+        # cache_idx
+        conv_state_batch_coord = idx_seq
+    if USE_PAD_SLOT:
+        if conv_state_batch_coord == pad_slot_id:
+            # not processing as this is not the actual sequence
+            return
+    conv_states_base = (
+        conv_states_ptr
+        + (conv_state_batch_coord * stride_conv_state_seq)
+        + (idx_feats * stride_conv_state_dim)
+    )  # [BLOCK_N,]
+
+    w_base = w_ptr + (idx_feats * stride_w_dim)  # [BLOCK_N,]
+
+    # Does 2 things:
+    # 1. READ prior-block init-state data - [done by every Triton programs]
+    # 2. update conv_state with new data [only by the Triton program handles chunk_offset=0]
+    if chunk_offset == 0:
+        # read from conv_states
+        load_init_state = False
+        if HAS_INITIAL_STATES:  # the new HAS_INITIAL_STATES
+            load_init_state = tl.load(has_initial_states_ptr + idx_seq).to(tl.int1)
+        if load_init_state:
+            # load from conv_states
+            prior_tokens = conv_states_base + (state_len - 1) * stride_conv_state_tok
+            mask_w = idx_feats < dim
+            if KERNEL_WIDTH == 2:
+                conv_states_ptrs = prior_tokens  # [BLOCK_N]
+                col0 = tl.load(conv_states_ptrs, mask_w, 0.0)
+            if KERNEL_WIDTH == 3:
+                conv_states_ptrs = prior_tokens  # [BLOCK_N]
+                col1 = tl.load(conv_states_ptrs, mask_w, 0.0)
+                conv_states_ptrs = prior_tokens - 1 * stride_conv_state_tok  # [BLOCK_N]
+                col0 = tl.load(conv_states_ptrs, mask_w, 0.0)
+            if KERNEL_WIDTH == 4:
+                conv_states_ptrs = prior_tokens  # [BLOCK_N]
+                col2 = tl.load(conv_states_ptrs, mask_w, 0.0)
+                conv_states_ptrs = prior_tokens - 1 * stride_conv_state_tok  # [BLOCK_N]
+                col1 = tl.load(conv_states_ptrs, mask_w, 0.0)
+                conv_states_ptrs = prior_tokens - 2 * stride_conv_state_tok  # [BLOCK_N]
+                col0 = tl.load(conv_states_ptrs, mask_w, 0.0)
+            if KERNEL_WIDTH == 5:
+                conv_states_ptrs = prior_tokens  # [BLOCK_N]
+                col3 = tl.load(conv_states_ptrs, mask_w, 0.0)
+                conv_states_ptrs = prior_tokens - 1 * stride_conv_state_tok  # [BLOCK_N]
+                col2 = tl.load(conv_states_ptrs, mask_w, 0.0)
+                conv_states_ptrs = prior_tokens - 2 * stride_conv_state_tok  # [BLOCK_N]
+                col1 = tl.load(conv_states_ptrs, mask_w, 0.0)
+                conv_states_ptrs = prior_tokens - 3 * stride_conv_state_tok  # [BLOCK_N]
+                col0 = tl.load(conv_states_ptrs, mask_w, 0.0)
+        else:
+            # prior-tokens are zeros
+            if KERNEL_WIDTH >= 2:  # STRATEGY1
+                # first chunk and does not have prior-token, so just set to 0
+                col0 = tl.zeros((BLOCK_N,), dtype=x_ptr.dtype.element_ty)
+            if KERNEL_WIDTH >= 3:  # STRATEGY1
+                col1 = tl.zeros((BLOCK_N,), dtype=x_ptr.dtype.element_ty)
+            if KERNEL_WIDTH >= 4:  # STRATEGY1
+                col2 = tl.zeros((BLOCK_N,), dtype=x_ptr.dtype.element_ty)
+            if KERNEL_WIDTH >= 5:  # STRATEGY1
+                col3 = tl.zeros((BLOCK_N,), dtype=x_ptr.dtype.element_ty)
+
+        # STEP 2:
+        # here prepare data for updating conv_state
+        if (
+            state_len <= seqlen
+        ):  # SMALL_CACHE=True (only move part of 'x' into conv_state cache)
+            # just read from 'x'
+            # copy 'x' data to conv_state
+            # load only 'x' data (and set 0 before 'x' if seqlen < state_len)
+            idx_tokens_last = (seqlen - state_len) + tl.arange(
+                0, NP2_STATELEN
+            )  # [BLOCK_M]
+            x_ptrs = (
+                x_ptr
+                + ((sequence_start_index + idx_tokens_last) * stride_x_token)[:, None]
+                + (idx_feats * stride_x_dim)[None, :]
+            )  # [BLOCK_M,BLOCK_N,]
+            mask_x = (
+                (idx_tokens_last >= 0)[:, None]
+                & (idx_tokens_last < seqlen)[:, None]
+                & (idx_feats < dim)[None, :]
+            )  # token-index  # token-index  # feature-index
+            loaded_x = tl.load(x_ptrs, mask_x, 0.0)
+            new_conv_state = tl.load(x_ptrs, mask_x, 0.0)
+            idx_tokens_conv = tl.arange(0, NP2_STATELEN)  # [BLOCK_M]
+            conv_states_ptrs_target = (
+                conv_states_base[None, :]
+                + (idx_tokens_conv * stride_conv_state_tok)[:, None]
+            )
+
+            mask = (idx_tokens_conv < state_len)[:, None] & (idx_feats < dim)[None, :]
+            tl.debug_barrier()  #   use this due to bug in Triton compiler
+            tl.store(conv_states_ptrs_target, new_conv_state, mask)
+
+        else:
+            if load_init_state:
+                # update conv_state by shifting left, i.e. take last few cols from conv_state + cols from 'x'
+                idx_tokens_conv = tl.arange(0, NP2_STATELEN)  # [BLOCK_M]
+
+                conv_states_ptrs_source = (
+                    conv_states_ptr
+                    + (conv_state_batch_coord * stride_conv_state_seq)
+                    + (idx_feats * stride_conv_state_dim)[None, :]
+                    + ((idx_tokens_conv + seqlen) * stride_conv_state_tok)[:, None]
+                )  # [BLOCK_M, BLOCK_N]
+                mask = (
+                    (conv_state_batch_coord < num_cache_lines)
+                    & ((idx_tokens_conv + seqlen) < state_len)[:, None]
+                    & (idx_feats < dim)[None, :]
+                )
+                conv_state = tl.load(conv_states_ptrs_source, mask, other=0.0)
+
+                VAL = state_len - seqlen
+
+                x_ptrs = (
+                    x_base[None, :]
+                    + ((idx_tokens_conv - VAL) * stride_x_token)[:, None]
+                )  # [BLOCK_M, BLOCK_N]
+
+                mask_x = (
+                    (idx_tokens_conv - VAL >= 0)[:, None]
+                    & (idx_tokens_conv - VAL < seqlen)[:, None]
+                    & (idx_feats < dim)[None, :]
+                )  # token-index  # token-index  # feature-index
+                loaded_x = tl.load(x_ptrs, mask_x, 0.0)
+
+                tl.debug_barrier()  # need this due to the bug in tl.where not enforcing this when data is the result of another tl.load
+                new_conv_state = tl.where(
+                    mask, conv_state, loaded_x
+                )  # BUG in 'tl.where'  which requires a barrier before this
+                conv_states_ptrs_target = (
+                    conv_states_base
+                    + (idx_tokens_conv * stride_conv_state_tok)[:, None]
+                )  # [BLOCK_M, BLOCK_N]
+                mask = (idx_tokens_conv < state_len)[:, None] & (idx_feats < dim)[
+                    None, :
+                ]
+                tl.store(conv_states_ptrs_target, new_conv_state, mask)
+            else:  # load_init_state == False
+                # update conv_state by shifting left, BUT
+                # set cols prior to 'x' as zeros + cols from 'x'
+                idx_tokens_conv = tl.arange(0, NP2_STATELEN)  # [BLOCK_M]
+
+                VAL = state_len - seqlen

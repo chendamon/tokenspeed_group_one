@@ -1,0 +1,32 @@
+=== MODEL FILES ===
+chat_template.jinja	7755 bytes
+config.json	2907 bytes
+merges.txt	3353259 bytes
+model.safetensors-00001-of-00001.safetensors	1746942600 bytes
+model.safetensors.index.json	50900 bytes
+tokenizer.json	12807982 bytes
+tokenizer_config.json	16709 bytes
+vocab.json	6722759 bytes
+=== MODEL HASHES ===
+b90b86f35c8e6925ef74ee04d0e758f0a845c83a42089ad82bbaa948de9b4204  /home/u2601112013/models/Qwen3.5-0.8B/config.json
+d8a08838a613b025eb7952ed9db11696213e57e76a375661ef5c12f9dd5dcf4e  /home/u2601112013/models/Qwen3.5-0.8B/model.safetensors.index.json
+04b1c301231dd422b8860db31311ab2721511346a32cb1e079c4c4e5f1fe4696  /home/u2601112013/models/Qwen3.5-0.8B/model.safetensors-00001-of-00001.safetensors
+=== TEXT CONFIG SUMMARY ===
+model_type=qwen3_5_text
+dtype=bfloat16
+vocab_size=248320
+hidden_size=1024
+intermediate_size=3584
+num_hidden_layers=24
+num_attention_heads=8
+num_key_value_heads=2
+head_dim=256
+linear_num_key_heads=16
+linear_num_value_heads=16
+linear_key_head_dim=128
+linear_value_head_dim=128
+linear_conv_kernel_dim=4
+full_attention_interval=4
+max_position_embeddings=262144
+full_attention_layers=6
+linear_attention_layers=18

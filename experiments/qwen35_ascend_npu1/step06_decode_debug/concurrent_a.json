@@ -1,0 +1,1 @@
+{"id":"cmpl-dZh8ZpcDtboFURIZS5EsHMX9-01a16264-dbb7-70a7-876e-7393da2ac2da","object":"text_completion","created":1792652139,"model":"qwen35-0.8b","choices":[{"text":" 2.\nOne plus one equals","index":0,"finish_reason":"length"}],"usage":{"prompt_tokens":4,"completion_tokens":8,"total_tokens":12,"prompt_tokens_details":{"cached_tokens":0}},"system_fingerprint":"default"}

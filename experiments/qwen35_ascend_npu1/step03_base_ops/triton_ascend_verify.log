@@ -1,0 +1,15 @@
+=== TRITON ASCEND VERIFIER ===
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66: UserWarning: Permission mismatch: The owner of /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/lib/libop_plugin_atb.so does not match.
+  warnings.warn(f"Permission mismatch: The owner of {path} does not match.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/home/u2601112013/tokenspeed_group_one/test/ci_system/verify_triton_ascend.py:71: UserWarning: Cannot create tensor with interal format while allow_internel_format=False, tensor will be created with base format. (Triggered internally at build/CMakeFiles/torch_npu.dir/compiler_depend.ts:338.)
+  output = torch.empty_like(x)
+Triton-Ascend verification passed: {'annotated_doc': '0.0.5', 'apache_tvm_ffi': '0.1.13', 'hf_xet': '1.6.0', 'torch': '2.9.0+cpu', 'torch_npu': '2.9.0', 'transformers': '5.12.0', 'huggingface_hub': '1.32.0', 'shellingham': '1.5.4', 'tokenizers': '0.22.2', 'typer': '0.27.2', 'triton': '3.2.0', 'triton_ascend': '3.2.1', 'tokenspeed_kernel_npu': '0.1.0', 'target': "GPUTarget(backend='npu', arch='Ascend910_9362', warp_size=0)", 'device': 'Ascend910_9362'}
+verify_exit=0

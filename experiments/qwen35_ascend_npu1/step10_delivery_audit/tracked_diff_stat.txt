@@ -1,0 +1,10 @@
+ .../tokenspeed/runtime/execution/model_executor.py |  6 +-
+ .../layers/attention/backends/state/mamba.py       |  2 +
+ .../layers/attention/linear/layernorm_gated.py     |  3 +-
+ python/tokenspeed/runtime/layers/layernorm.py      | 16 +++-
+ python/tokenspeed/runtime/models/qwen3_5.py        |  3 +-
+ test/runtime/layers/test_npu_attention_backend.py  | 90 +++++++++++++++++++++-
+ .../python/tokenspeed_kernel_npu/ops/mha.py        | 41 ++++++++++
+ tokenspeed-kernel-npu/test/test_mha.py             |  7 +-
+ .../ops/attention/gdn/__init__.py                  |  3 +
+ 9 files changed, 163 insertions(+), 8 deletions(-)

@@ -1,0 +1,645 @@
+=== ATTENTION PROFILE / DEFAULT SELECTION ===
+}
+_HYBRID_DSA_KDA_TARGET_ARCHITECTURES = {
+    "Glm53FlashForConditionalGeneration",
+}
+_HYBRID_DSA_KDA_ARCHITECTURES = {
+    *_HYBRID_DSA_KDA_TARGET_ARCHITECTURES,
+    "Glm53FlashForConditionalGenerationNextN",
+}
+
+# Inkling stays on the MHA path plus its thin sconv wrapper; it is not hybrid-GDN.
+_INKLING_ARCHITECTURES = {
+    "InklingForConditionalGeneration",
+    "InklingForConditionalGenerationNextN",
+}
+
+_DSPARK_DRAFT_ARCHITECTURES = frozenset({"DeepseekV41ForCausalLMDSpark"})
+
+
+@dataclasses.dataclass(frozen=True)
+class _AttnSideProfile:
+    """Architecture-derived family facts for one side (target or draft).
+
+    Everything here resolves from the model's ``hf_config`` before any
+    attention config exists, so the target and draft sides share one
+    derivation instead of two interleaved copies.
+    """
+
+    architectures: tuple[str, ...]
+    requested_backend: str | None
+    is_hybrid_gdn: bool
+    is_mamba2: bool
+    is_kda: bool
+    # KDA hybrid whose full-attention layers are DSA (GLM-5.3-Flash); a
+    # subset of ``is_kda`` that selects the DSA history consumer and the
+    # glm53_flash cache family.
+    is_dsa_kda: bool
+    is_qwen4_exp: bool
+    is_qsa: bool
+    is_inkling: bool
+    is_dspark: bool
+    # The model's own profile, when it declares one; the facts above are then
+    # all False and the profile answers for the model.
+    model_profile: ModelProfile | None
+
+    @property
+    def linear_attention(self) -> str | None:
+        """The registered linear-attention backend of the model's linear
+        layers, or None for a model without them."""
+        if self.model_profile is not None:
+            return self.model_profile.linear_attention
+        if self.is_kda:
+            return "kda"
+        if self.is_hybrid_gdn:
+            return "gdn"
+        if self.is_mamba2:
+            return "mamba2"
+        return None
+
+    @property
+    def is_hybrid_linear(self) -> bool:
+        # GDN and KDA both take the hybrid-linear path; they differ only in
+        # the linear kernel (GDN scalar decay vs KDA per-channel) and the
+        # base attn arch (MHA vs MLA vs DSA).
+        return self.linear_attention is not None
+
+
+def _resolve_attn_side(
+    model_config: ModelConfig, requested_backend: str | None
+) -> _AttnSideProfile:
+    hf_config = model_config.hf_config
+    architectures = getattr(hf_config, "architectures", None) or []
+    if model_config.model_profile is not None:
+        return _AttnSideProfile(
+            architectures=tuple(architectures),
+            requested_backend=requested_backend,
+            is_hybrid_gdn=False,
+            is_mamba2=False,
+            is_kda=False,
+            is_dsa_kda=False,
+            is_qwen4_exp=False,
+            is_qsa=False,
+            is_inkling=False,
+            is_dspark=False,
+            model_profile=model_config.model_profile,
+        )
+    text_config = getattr(hf_config, "text_config", hf_config)
+    qwen4_exp = is_qwen4_exp(hf_config)
+    is_dspark = any(a in _DSPARK_DRAFT_ARCHITECTURES for a in architectures)
+    is_dsa_kda = any(a in _HYBRID_DSA_KDA_ARCHITECTURES for a in architectures)
+    return _AttnSideProfile(
+        architectures=tuple(architectures),
+        requested_backend=requested_backend,
+        is_hybrid_gdn=any(a in _HYBRID_GDN_ARCHITECTURES for a in architectures),
+        is_mamba2=any(a in _HYBRID_MAMBA2_ARCHITECTURES for a in architectures),
+        is_kda=is_dsa_kda
+        or any(a in _HYBRID_MLA_KDA_ARCHITECTURES for a in architectures),
+        is_dsa_kda=is_dsa_kda,
+        is_qwen4_exp=qwen4_exp,
+        is_qsa=qwen4_exp and getattr(text_config, "indexer_n_heads", None) is not None,
+        is_inkling=any(a in _INKLING_ARCHITECTURES for a in architectures),
+        is_dspark=is_dspark,
+        model_profile=None,
+    )
+
+
+def _check_pd_support(
+    server_args: ServerArgs,
+    target: _AttnSideProfile,
+    draft: _AttnSideProfile | None,
+    *,
+    has_draft_model: bool,
+) -> None:
+    """Every disaggregated-serving support gate, raised up front."""
+    if server_args.disaggregation_mode not in ("prefill", "decode"):
+        return
+    if (target.is_inkling or (draft is not None and draft.is_inkling)) and (
+        has_draft_model or server_args.speculative_algorithm is not None
+    ):
+        raise NotImplementedError(
+            "Inkling PD supports target-only decoding; speculative/draft "
+            "ShortConv checkpoint transfer is not implemented"
+) -> str:
+    """Identify the cache producer, including MSA's dense sub-backend.
+
+    This is startup compatibility metadata only. MSA still constructs its
+    dense/sparse routers from the original config, on the common path.
+    """
+    name = full_attn_backend_name or _get_default_backend_name(arch)
+    if isinstance(softmax_attn, MSAConfig):
+        dense_name = softmax_attn.full_attn_backend_name or "mha"
+        return f"{name}:{dense_name}"
+    return name
+
+
+def _has_state_layers(config: AttnConfig) -> bool:
+    """The plan actually carries recurrent state (hybrid arch + state labels)."""
+    if config.component(LinearAttnConfig) is None:
+        return False
+    return any(
+        layer_type in STATE_LAYER_TYPES
+        for layer_type in config.component(SoftmaxAttnConfig).cache_layer_types
+    )
+
+
+def _resolve_cache_family(
+    profile: _AttnSideProfile,
+    config: AttnConfig,
+) -> CacheModelFamily:
+    """The one dispatch from family facts (plus built config) to the recipe."""
+    if profile.model_profile is not None:
+        return profile.model_profile.cache_family
+    if config.component(Dots3NoteAttentionConfig) is not None:
+        return "dots3_note"
+    if config.component(DeepseekV41Config) is not None:
+        return "deepseek_v41"
+    # PLE and QSA are cache consumers even in a view without GDN layers.
+    if profile.is_qwen4_exp:
+        return "qwen4_exp"
+    if profile.is_hybrid_gdn and _has_state_layers(config):
+        return "qwen_gdn"
+    if profile.is_mamba2 and _has_state_layers(config):
+        return "mamba2"
+    if profile.is_dsa_kda:
+        return "glm53_flash"
+    if profile.is_kda:
+        return "kimi_k3"
+    if profile.is_inkling:
+        return "inkling"
+    family = _ordinary_cache_family(config)
+    if family is None:
+        raise RuntimeError(
+            "No cache recipe is registered for "
+            f"attention config {type(config.component(SoftmaxAttnConfig)).__name__}"
+        )
+    return family
+
+
+def _get_default_backend_name(arch: AttentionArch) -> str:
+    if arch == AttentionArch.MLA:
+        return "mla"
+    if arch == AttentionArch.DSA:
+        return "dsa"
+=== LINEAR ATTENTION BACKEND REGISTRY ===
+            logger.warning(
+                "Qwen4-Exp QSA pins its sparse dispatch to the qsa backend; "
+                f"ignoring explicit attention backend {requested_name!r}",
+            )
+        return "qsa"
+    if is_dsa and name is None:
+        return "dsa"
+    # NVIDIA K3 defaults to its CuteDSL history consumer. AMD keeps the
+    # generic MLA backend; explicit user choices remain authoritative.
+    if is_kda and name is None and not current_platform().is_amd:
+        return "tokenspeed_mla"
+    return name
+
+
+def _kda_linear_attn_backend(
+    server_args: ServerArgs, config: AttnConfig
+) -> AttentionBackend:
+    from tokenspeed.runtime.layers.attention.backends.state.kda import (
+        KdaAttnBackend,
+        resolve_kda_backend,
+    )
+
+    return KdaAttnBackend(
+        config,
+        config.component(SoftmaxAttnConfig),
+        enable_prefill_graph=not server_args.disable_kda_prefill_graph,
+        kda_backend=resolve_kda_backend(server_args.kda_backend.strip().lower()),
+    )
+
+
+def _gdn_linear_attn_backend(
+    server_args: ServerArgs, config: AttnConfig
+) -> AttentionBackend:
+    del server_args
+    from tokenspeed.runtime.layers.attention.backends.state.gdn import (
+        GdnAttnBackend,
+    )
+
+    return GdnAttnBackend(config, config.component(SoftmaxAttnConfig))
+
+
+def _mamba2_linear_attn_backend(
+    server_args: ServerArgs, config: AttnConfig
+) -> AttentionBackend:
+    del server_args
+    from tokenspeed.runtime.layers.attention.backends.state.mamba2 import (
+        Mamba2AttnBackend,
+    )
+
+    return Mamba2AttnBackend(config, config.component(SoftmaxAttnConfig))
+
+
+# Linear-attention backends by name: ``factory(server_args, config)`` builds
+# the backend a hybrid model's linear layers run on. Plugins add entries via
+# ``tokenspeed.runtime.plugins.registry.register_linear_attention_backend``.
+_LINEAR_ATTN_BACKENDS: dict[
+    str, Callable[[ServerArgs, AttnConfig], AttentionBackend]
+] = {
+    "kda": _kda_linear_attn_backend,
+    "gdn": _gdn_linear_attn_backend,
+    "mamba2": _mamba2_linear_attn_backend,
+}
+
+
+def _create_hybrid_linear_attn_backend(
+    server_args: ServerArgs,
+    model_config: ModelConfig,
+    config: AttnConfig,
+    *,
+    pool,
+    full_attn_backend_name: str | None,
+    linear_attention: str,
+) -> AttentionBackend:
+    """Create a hybrid backend for a linear-attention model.
+
+    ``linear_attention`` names the registered backend of the linear layers:
+    ``gdn`` (Qwen3.5, MHA base), ``kda`` (Kimi-K3, MLA base; GLM-5.3-Flash,
+    DSA base) or a plugin's. Both sub-backends bind to the one shared cache
+    pool through the wrapper's ``set_cache_pool``. ``pool`` is inspected here
+    only to select the consumers local to this model view.
+    """
+    from tokenspeed.runtime.layers.attention.backends.hybrid.linear import (
+        HybridLinearAttnBackend,
+    )
+
+    linear_factory = _LINEAR_ATTN_BACKENDS.get(linear_attention)
+=== DEVICE STREAM ABSTRACTION ===
+# Copyright (c) 2026 LightSeek Foundation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+from contextlib import contextmanager
+from typing import Any
+
+import torch
+
+
+def new_device_stream():
+    """Create a stream for the active accelerator, or None on CPU-only hosts."""
+    try:
+        device_module = torch.get_device_module()
+    except (AttributeError, RuntimeError):
+        return None
+    is_available = getattr(device_module, "is_available", None)
+    if callable(is_available) and not is_available():
+        return None
+    return device_module.Stream()
+
+
+@contextmanager
+def limit_stream_cores(
+    stream: Any | None,
+    *,
+    cube_num: int,
+    vector_num: int,
+    enable: bool,
+):
+    """Temporarily limit accelerator cores available to one stream.
+
+    Accelerator backends without a per-stream limit API keep their normal
+    scheduling.  Supporting backends restore the stream's previous limits,
+    rather than resetting to a device-wide default that may discard an outer
+    scheduling scope.
+    """
+    if not enable or stream is None:
+        yield
+        return
+    device_module = torch.get_device_module(getattr(stream, "device", None))
+    get_limit = getattr(device_module, "get_stream_limit", None)
+    set_limit = getattr(device_module, "set_stream_limit", None)
+    if not callable(get_limit) or not callable(set_limit):
+        yield
+        return
+    previous = get_limit(stream)
+    set_limit(stream, cube_num=cube_num, vector_num=vector_num)
+    try:
+        yield
+    finally:
+        set_limit(
+            stream,
+            cube_num=int(previous["cube_core_num"]),
+            vector_num=int(previous["vector_core_num"]),
+        )
+
+
+class StreamFork:
+    def __init__(self, aux_stream: Any | None):
+        self.aux_stream = aux_stream
+        self.device_module = None
+        if aux_stream is not None:
+            device = getattr(aux_stream, "device", None)
+            self.device_module = torch.get_device_module(device)
+        self.fork_event = (
+            self.device_module.Event() if self.device_module is not None else None
+        )
+        self.join_event = (
+            self.device_module.Event() if self.device_module is not None else None
+        )
+        self._active = False
+        self._overlap = True
+        self._current: Any | None = None
+
+    @contextmanager
+    def scope(self, *, enable: bool, overlap: bool = True):
+        """Configure auxiliary-stream execution for work in this scope.
+
+        Args:
+            enable: Whether calls to ``branch()`` use the auxiliary stream.
+            overlap: Whether the main stream may overlap with auxiliary-stream
+                work. If false, the main stream waits after each branch.
+
+        Yields:
+            This stream fork, ready to create branches with ``branch()``.
+        """
+        self._active = enable and self.aux_stream is not None
+        self._overlap = overlap
+        if self._active:
+            self._current = self.device_module.current_stream()
+            self.fork_event.record(self._current)
+        try:
+            yield self
+        finally:
+            if self._active:
+                self.join_event.wait(self._current)
+                self._active = False
+                self._overlap = True
+                self._current = None
+
+    @contextmanager
+    def branch(self):
+        if not self._active:
+            yield
+            return
+        with self.device_module.stream(self.aux_stream):
+            self.fork_event.wait(self.aux_stream)
+            yield
+            self.join_event.record(self.aux_stream)
+        if not self._overlap:
+            self.join_event.wait(self._current)
+=== NPU PACKAGE FILES ===
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/__init__.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/_triton.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/__init__.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/activation.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/gemm.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/layernorm.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mha.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_dcp.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_packed.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_prolog.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/moe.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/over_embedding.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/rotary_embedding.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/sampling.py
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py
+=== NPU PACKAGE REGISTRATIONS ===
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:29:def pack_int4(values: torch.Tensor) -> torch.Tensor:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:44:def unpack_int4(packed: torch.Tensor) -> torch.Tensor:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:83:def prepare_w4a4_grouped_plan(weights: W4A4MoePlan) -> W4A4GroupedPlan:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:86:    def encode(scale):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:93:def w4a4_grouped_experts(x, counts, *, rows, plan: W4A4GroupedPlan):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:110:    def quantize(value, stage):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:121:    def matmul(value, scales, weight, weight_scale):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:144:def prepare_flatquant_stage(left, right, clip, *, width: int) -> FlatQuantStage:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:168:def prepare_w4a4_moe_weights(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:228:    def to_nz(weight):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:268:def require_fused_flatquant(op) -> None:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:289:def ascend_int4_process_moe_weights(*, plan: dict, w: torch.nn.Module) -> None:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/w4a4.py:331:def ascend_int4_precomputed_moe_apply(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla.py:37:def _causal_mask(device: torch.device) -> torch.Tensor:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla.py:47:def _lse(lse: torch.Tensor, tokens: int, heads: int) -> torch.Tensor:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla.py:51:def _result(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla.py:64:def mla_normalize_project_query(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla.py:94:def mla_project_value(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla.py:110:def mla_prefill(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla.py:151:def mla_extend_with_kvcache(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla.py:247:def mla_decode_with_kvcache(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla.py:341:def attn_merge_state(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/sampling.py:49:def min_p_renorm_prob(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/rotary_embedding.py:29:def apply_rope(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mha.py:33:def _causal_mask(device: torch.device) -> torch.Tensor:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mha.py:43:def _scale(q: torch.Tensor, softmax_scale: float | None) -> float:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mha.py:47:def _check_options(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mha.py:64:def mha_prefill(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mha.py:101:def mha_extend_with_kvcache(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mha.py:151:def mha_decode_with_kvcache(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/over_embedding.py:28:def _load_flash_oe_ops() -> None:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/over_embedding.py:46:def register_host_tables(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/over_embedding.py:63:def append_packed_lookup(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/layernorm.py:29:def rmsnorm(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/layernorm.py:53:def qk_rmsnorm(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_prolog.py:33:def _flash_mla_prolog():
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_prolog.py:50:def mla_prolog_available() -> bool:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_prolog.py:55:def _supports_mla_prolog(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_prolog.py:115:def mla_prolog(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/moe.py:33:def _format_grouped_weight_nz(weight: torch.Tensor) -> torch.Tensor:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/moe.py:46:def ascend_softmax_bias_topk(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/moe.py:72:def ascend_bf16_process_moe_weights(*, plan: dict, w: torch.nn.Module) -> None:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/moe.py:133:def ascend_int8_process_moe_weights(*, plan: dict, w: torch.nn.Module) -> None:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/moe.py:177:def _ascend_bf16_expert_gmm(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/moe.py:211:def ascend_bf16_precomputed_moe_apply(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/moe.py:296:def ascend_int8_precomputed_moe_apply(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/moe.py:402:def _ascend_int8_gmm2_finalize(hidden, hidden_scale, counts, rows, ids, weights, w):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/moe.py:421:def ascend_bf16_distributed_precomputed_moe_apply(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/gemm.py:27:def prepare_weight_nz(weight: torch.Tensor, *, transpose: bool = False) -> torch.Tensor:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/gemm.py:51:    def __init__(self, weight, weight_scale, *, output_dtype):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/gemm.py:67:    def forward(self, x, *, bias=None, defer_dequant=False):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/activation.py:29:def silu_and_mul(x: torch.Tensor, out: torch.Tensor | None = None) -> torch.Tensor:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/activation.py:42:def dequant_silu_and_mul_quant(x, weight_scale, activation_scale):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/activation.py:63:def _unit_smooth_scale(device: torch.device, width: int) -> torch.Tensor:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/activation.py:70:def silu_and_mul_quant(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_packed.py:30:def _packed_op():
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_packed.py:64:        def update_args(cls, record, update_input):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_packed.py:69:        def record_wrap_kwarg(cls, key, value, tensor_param_names):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_packed.py:80:def packed_mla_decode_op(q, kv_cache, page_table, max_seqlen_k):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_packed.py:115:def _packed_prefill_op():
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_packed.py:133:def packed_mla_prefill_op(q, kv_cache, page_table, max_seqlen_q, max_seqlen_k):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/_triton.py:43:def _jit_with_ascend_compatibility(fn=None, **kwargs):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/_triton.py:55:def _unsupported_pdl_noop():
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_dcp.py:41:    def __init__(self, lengths):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_dcp.py:47:    def refresh(self, lengths):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_dcp.py:61:def _packed_fia(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_dcp.py:85:    def update_args(cls, record, update_input):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_dcp.py:92:    def record_wrap_kwarg(cls, key, value, tensor_param_names):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_dcp.py:98:def mla_partial(query, cache, table, binding, scale):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mla_dcp.py:134:def merge_dcp_partials(output, lse):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py:33:def _scatter(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py:50:def interleave_rope(tensor, positions, cos_sin_cache, *, rope_dim):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py:71:    def __init__(self):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py:96:    def require_context_parallel(self):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py:107:    def _full_scan_chunk_hints(self, indices):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py:128:    def scatter(self, x, cache, locations):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py:146:    def index(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py:172:    def index_partial(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py:205:    def select_local(self, local_indices, global_positions, rank):
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py:210:    def attention(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py:246:    def attention_partial(
+tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/dsa.py:283:    def merge_partials(self, output, lse):
+=== GDN REGISTRATION CAPABILITIES ===
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:23:The public ``gdn_chunk_prefill`` contract (initial_state/final_state/h) is
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:29:``gdn_decode_step``/``gdn_decode_mtp`` (below) are the portable fallback for
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:71:    CapabilityRequirement,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:75:from tokenspeed_kernel.registry import Priority, register_kernel
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:82:@register_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:84:    "gdn_chunk_prefill",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:85:    name="triton_gdn_chunk_prefill",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:87:    capability=CapabilityRequirement(vendors=frozenset({"nvidia", "amd"})),
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:97:def triton_gdn_chunk_prefill(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:162:def _fused_gdn_decode_update_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:207:    ``[pool_size, HV, V, K]`` SSM state pool (matches gdn_chunk_prefill's
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:445:def _launch_fused_gdn_decode_update(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:465:    """Shared launcher for the ``gdn_decode_step`` (T=1) / ``gdn_decode_mtp``
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:494:    _fused_gdn_decode_update_kernel[grid](
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:540:@register_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:542:    "gdn_decode_step",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:543:    name="triton_gdn_decode_step",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:545:    capability=CapabilityRequirement(vendors=frozenset({"nvidia", "amd"})),
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:552:def triton_gdn_decode_step(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:567:    """Portable Triton fallback for ``gdn_decode_step`` (see
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:572:    return _launch_fused_gdn_decode_update(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:594:def _gdn_tree_verify_chunked_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:632:    ``_fused_gdn_decode_update_kernel``; ``tree_ancestors`` is the ``[B, T]``
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:788:def _launch_gdn_tree_verify_chunked(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:826:    _gdn_tree_verify_chunked_kernel[(triton.cdiv(V, BV), B * HV)](
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:872:@register_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:874:    "gdn_decode_mtp",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:875:    name="triton_gdn_decode_mtp",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:877:    capability=CapabilityRequirement(vendors=frozenset({"nvidia", "amd"})),
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:887:def triton_gdn_decode_mtp(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:907:    """Portable Triton fallback for ``gdn_decode_mtp`` (see
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:919:        return _launch_gdn_tree_verify_chunked(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:936:    return _launch_fused_gdn_decode_update(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:963:def _gdn_replay_commit_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:1215:@register_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:1217:    "gdn_replay_commit",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:1218:    name="triton_gdn_replay_commit",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:1220:    capability=CapabilityRequirement(vendors=frozenset({"nvidia", "amd"})),
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:1227:def triton_gdn_replay_commit(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/triton.py:1289:    _gdn_replay_commit_kernel[(batch_size * num_v_heads * NV, num_layers)](
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:28:    CapabilityRequirement,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:31:from tokenspeed_kernel.registry import Priority, register_kernel
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:36:        launch_gluon_gdn_decode_gfx950,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:39:    _GFX950 = CapabilityRequirement(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:42:        vendors=frozenset({"amd"}),
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:45:    @register_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:47:        "gdn_decode_step",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:48:        name="gluon_gdn_decode_step_gfx950",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:60:    def gluon_gdn_decode_step_gfx950(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:75:        """gfx950 ``gdn_decode_step``: the state goes to ``output_state_indices``
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:77:        return launch_gluon_gdn_decode_gfx950(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:98:    @register_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:100:        "gdn_decode_mtp",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:101:        name="gluon_gdn_decode_mtp_gfx950",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:114:    def gluon_gdn_decode_mtp_gfx950(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:134:        """gfx950 chain ``gdn_decode_mtp`` (draft trees run the Triton kernel)."""
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/gluon.py:146:        return launch_gluon_gdn_decode_gfx950(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:24:Decode / MTP: single-token decode (``gdn_decode_step``) and multi-token
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:25:speculative-verify decode (``gdn_decode_mtp``) on Hopper+ (SM90+).
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:31:the Triton FLA convention (``[N, H, K, V]``); the Triton ``gdn_chunk_prefill``
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:53:    CapabilityRequirement,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:57:from tokenspeed_kernel.registry import Priority, error_fn, register_kernel
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:110:flashinfer_gdn_chunk_prefill = error_fn
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:114:    @register_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:116:        "gdn_chunk_prefill",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:117:        name="flashinfer_gdn_chunk_prefill",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:119:        capability=CapabilityRequirement(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:122:            vendors=frozenset({"nvidia"}),
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:134:    def flashinfer_gdn_chunk_prefill(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:263:flashinfer_gdn_decode_step = error_fn
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:264:flashinfer_gdn_decode_mtp = error_fn
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:268:    @register_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:270:        "gdn_decode_step",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:271:        name="flashinfer_gdn_decode_step",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:273:        capability=CapabilityRequirement(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:275:            vendors=frozenset({"nvidia"}),
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:286:    def flashinfer_gdn_decode_step(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:305:        layout as gdn_chunk_prefill/gdn_decode_mtp -- no transpose needed at
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:338:    @register_kernel(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:340:        "gdn_decode_mtp",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:341:        name="flashinfer_gdn_decode_mtp",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:343:        capability=CapabilityRequirement(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:345:            vendors=frozenset({"nvidia"}),
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:357:    def flashinfer_gdn_decode_mtp(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:381:        layout as gdn_chunk_prefill/gdn_decode_step); initial_state_indices
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/flashinfer.py:406:        bfloat16 with K == V == 128 (mirrors gdn_decode_step's own bf16/fp32
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/README.md:49:`triton_gdn_replay_commit` commits accepted prefixes for all layers in one
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:124:_DEVICE_BOUNDS_CHUNK_PREFILL = frozenset({"flashinfer_gdn_chunk_prefill"})
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:144:def gdn_chunk_prefill_capturable(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:153:    """Whether a CUDA graph can capture ``gdn_chunk_prefill`` at a fixed sequence count.
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:174:            "gdn_chunk_prefill",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:185:def gdn_chunk_prefill(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:237:        "gdn_chunk_prefill",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:254:        "gdn_chunk_prefill",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:262:        "gdn_chunk_prefill",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:303:def gdn_decode_step(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:329:            trait (see ``gdn_decode_supports``).
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:359:        "gdn_decode_step",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:367:        "gdn_decode_step",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:396:def gdn_tree_verify_needs_node_states(num_nodes: int) -> bool:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:397:    """Whether a ReplaySSM draft-tree ``gdn_decode_mtp`` of ``num_nodes`` nodes takes
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:413:def gdn_chain_verify_is_chunked(num_tokens: int, num_states: int) -> bool:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:414:    """Whether a ReplaySSM chain ``gdn_decode_mtp`` of ``num_tokens`` tokens over
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:426:def gdn_decode_mtp(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:494:            ``gdn_decode_supports``).
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:503:            is given exactly when ``gdn_tree_verify_needs_node_states(T)``.
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:566:            if gdn_tree_verify_needs_node_states(q.shape[1]) != (
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:572:                    "gdn_tree_verify_needs_node_states"
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:589:        "gdn_decode_mtp",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:597:        "gdn_decode_mtp",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:680:def gdn_decode_supports(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:692:        op: ``"gdn_decode_step"`` or ``"gdn_decode_mtp"``.
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:776:def gdn_replay_commit(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:836:        "gdn_replay_commit",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:844:        "gdn_replay_commit",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:871:def gdn_replay_commit_supported(
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:891:            "gdn_replay_commit",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:915:    "gdn_chunk_prefill",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:916:    "gdn_chunk_prefill_capturable",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:917:    "gdn_decode_step",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:918:    "gdn_decode_mtp",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:919:    "gdn_decode_supports",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:920:    "gdn_replay_commit",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:921:    "gdn_replay_commit_supported",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py:922:    "gdn_tree_verify_needs_node_states",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:28:from flashinfer.gdn_decode import (
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:31:from flashinfer.gdn_kernels.gdn_decode_mtp import (
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:170:    from flashinfer.gdn_kernels import gdn_decode_mtp
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:173:        return gdn_decode_mtp.run_mtp_decode
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:178:        gdn_decode_mtp,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:189:    from flashinfer.gdn_kernels import gdn_decode_bf16_state
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:192:        return vars(gdn_decode_bf16_state)
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:197:        gdn_decode_bf16_state,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:199:            "gdn_decode_bf16state_mtp_ilp4_kernel",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:204:            "run_gdn_decode_bf16state_mtp_ilp4",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:224:    from flashinfer import gdn_decode
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:225:    from flashinfer.gdn_kernels import gdn_decode_pretranspose
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:232:        gdn_decode_pretranspose,
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:234:            "gdn_decode_kernel_small_batch_pretranspose",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:235:            "gdn_decode_kernel_big_batch_pretranspose",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:238:            "run_gdn_decode_kernel_small_batch_pretranspose",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:239:            "run_gdn_decode_kernel_big_batch_pretranspose",
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:246:    if gdn_decode._GDN_DECODE_BF16_STATE_AVAILABLE:
+tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/_flashinfer/adapter.py:252:    return _clone_function(_original_decode, {**vars(gdn_decode), **overrides})

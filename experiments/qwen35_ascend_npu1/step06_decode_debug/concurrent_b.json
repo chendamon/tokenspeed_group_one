@@ -1,0 +1,1 @@
+{"id":"cmpl-B5G5WOiRRHhUIWFO0peLlTuC-01a16264-dbcc-75da-abd7-d18824c80f99","object":"text_completion","created":1792652139,"model":"qwen35-0.8b","choices":[{"text":" cold.\nA. True\nB","index":0,"finish_reason":"length"}],"usage":{"prompt_tokens":5,"completion_tokens":8,"total_tokens":13,"prompt_tokens_details":{"cached_tokens":0}},"system_fingerprint":"default"}

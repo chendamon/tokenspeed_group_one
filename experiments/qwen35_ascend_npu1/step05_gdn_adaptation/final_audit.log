@@ -1,0 +1,67 @@
+=== syntax ===
+syntax_ok 7
+=== diff check ===
+=== changed files ===
+ M python/tokenspeed/runtime/layers/attention/backends/state/mamba.py
+ M python/tokenspeed/runtime/layers/attention/linear/layernorm_gated.py
+ M python/tokenspeed/runtime/layers/layernorm.py
+ M python/tokenspeed/runtime/models/qwen3_5.py
+ M test/runtime/layers/test_npu_attention_backend.py
+ M tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/mha.py
+ M tokenspeed-kernel-npu/test/test_mha.py
+ M tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/__init__.py
+?? .runtime/
+?? experiments/
+?? tokenspeed-kernel-npu/python/tokenspeed_kernel_npu/ops/gdn.py
+?? tokenspeed-kernel-npu/test/test_gdn.py
+?? tokenspeed-kernel/python/tokenspeed_kernel/ops/attention/gdn/ascend.py
+=== diff stat ===
+ .../layers/attention/backends/state/mamba.py       |  2 +
+ .../layers/attention/linear/layernorm_gated.py     |  3 +-
+ python/tokenspeed/runtime/layers/layernorm.py      | 16 +++++-
+ python/tokenspeed/runtime/models/qwen3_5.py        |  3 +-
+ test/runtime/layers/test_npu_attention_backend.py  | 65 +++++++++++++++++++++-
+ .../python/tokenspeed_kernel_npu/ops/mha.py        | 41 ++++++++++++++
+ tokenspeed-kernel-npu/test/test_mha.py             |  7 ++-
+ .../ops/attention/gdn/__init__.py                  |  3 +
+ 8 files changed, 133 insertions(+), 7 deletions(-)
+=== long lines in new files ===
+=== GDN retest ===
+..                                                                       [100%]
+=============================== warnings summary ===============================
+../../../opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58
+../../../opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58
+  /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+    warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+
+../../../opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58
+../../../opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58
+  /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+    warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+
+../../../opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66
+  /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66: UserWarning: Permission mismatch: The owner of /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/lib/libop_plugin_atb.so does not match.
+    warnings.warn(f"Permission mismatch: The owner of {path} does not match.")
+
+test/test_gdn.py::test_gdn_decode_separate_pages_and_padding
+  /home/u2601112013/tokenspeed_group_one/tokenspeed-kernel-npu/test/test_gdn.py:50: UserWarning: Cannot create tensor with interal format while allow_internel_format=False, tensor will be created with base format. (Triggered internally at build/CMakeFiles/torch_npu.dir/compiler_depend.ts:338.)
+    k = torch.randn_like(q)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2 passed, 6 warnings in 8.81s
+=== visible device ===
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66: UserWarning: Permission mismatch: The owner of /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/lib/libop_plugin_atb.so does not match.
+  warnings.warn(f"Permission mismatch: The owner of {path} does not match.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+npu_count 1 logical0 Ascend910_9362
+=== live project processes ===
+S    2923111 tee /home/u2601112013/tokenspeed_group_one/experiments/qwen35_ascend_npu1/step05_gdn_adaptation/final_audit.log
+=== NPU1 process view ===
+This device does not support querying proc info.

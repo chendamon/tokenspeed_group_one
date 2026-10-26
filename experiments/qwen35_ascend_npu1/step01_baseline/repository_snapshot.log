@@ -1,0 +1,13 @@
+=== REPOSITORY ===
+/home/u2601112013/tokenspeed_group_one
+origin	https://github.com/chendamon/tokenspeed_group_one (fetch)
+origin	https://github.com/chendamon/tokenspeed_group_one (push)
+main
+6f834a96e078aedc2d232425d1887b1ca813b9cc
+commit_date=2026-10-15T23:43:04-07:00
+subject=feat(beam): add day-0 Reflection's Beam support (#2418)
+=== TRACKED DIFF ===
+=== STATUS ===
+## main...origin/main
+?? .runtime/
+?? experiments/

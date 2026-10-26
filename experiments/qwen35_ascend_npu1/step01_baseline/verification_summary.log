@@ -1,0 +1,25 @@
+=== SMOKE RESULT ===
+ASCEND_RT_VISIBLE_DEVICES=1
+logical_device_count=1
+logical_device_0=Ascend910_9362
+input_shape=(1, 8) input_device=npu:0
+logits_shape=(1, 1, 64) logits_dtype=torch.bfloat16 logits_device=npu:0
+forward_ms=205.814
+status=PASS
+=== TOKENSpeed REPRO RESULT ===
+physical_binding=1 logical_device_count=/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+[ts] [38;20m[2026-10-22 03:09:44,541  ATTN TP RANK 0] - INFO - Load weight begin. avail mem=61.02 GB (weight_loader.py:77)[0m
+[ts]   File "/home/u2601112013/tokenspeed_group_one/python/tokenspeed/runtime/models/qwen3_5.py", line 1044, in __init__
+[ts]     alt_stream = None if current_platform().is_amd else torch.cuda.Stream()
+[ts] RuntimeError: Tried to instantiate dummy base class Stream
+repro_exit=1
+=== TRACKED SOURCE DIFF ===
+=== ARTIFACTS ===
+environment_snapshot.log	763 bytes
+model_snapshot.log	1146 bytes
+nanogpt_npu1_smoke.log	1717 bytes
+repository_snapshot.log	422 bytes
+tokenspeed_qwen35_npu1_repro.log	19848 bytes
+verification_summary.log	955 bytes
+=== NPU1 FINAL AVAILABILITY ===
+| No running processes found in NPU 1                                                            |

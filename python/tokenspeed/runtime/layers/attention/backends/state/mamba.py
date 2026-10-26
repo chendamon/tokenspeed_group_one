@@ -162,6 +162,8 @@ def _prepare_gdn_decode_state_path(
 
 def gdn_decode_solution(ssm_dtype: torch.dtype) -> str | None:
     """The GDN decode/verify solution forced for a state dtype (see above)."""
+    if current_platform().is_npu:
+        return "torch_npu"
     return "triton" if ssm_dtype == torch.bfloat16 else None
 
 

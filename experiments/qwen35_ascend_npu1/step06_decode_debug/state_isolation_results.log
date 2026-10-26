@@ -1,0 +1,6 @@
+repeat_a 616 ms
+{"id":"cmpl-7AtKXAJazUWpqbJxprirkq60-01a16263-644d-7401-a9a1-1d0ee9ec4470","object":"text_completion","created":1792652043,"model":"qwen35-0.8b","choices":[{"text":" Paris.\nThe capital of France is","index":0,"finish_reason":"length"}],"usage":{"prompt_tokens":5,"completion_tokens":8,"total_tokens":13,"prompt_tokens_details":{"cached_tokens":0}},"system_fingerprint":"default"}
+different 4741 ms
+{"id":"cmpl-j3hKU1rS3zPGfrFnaQA13J4G-01a16263-66b4-747d-b039-769f3d37f3ba","object":"text_completion","created":1792652043,"model":"qwen35-0.8b","choices":[{"text":"\n\n<think>\n\n</think>\n\nThe sky appears blue because the atmosphere scatters shorter wavelengths","index":0,"finish_reason":"length"}],"usage":{"prompt_tokens":12,"completion_tokens":16,"total_tokens":28,"prompt_tokens_details":{"cached_tokens":0}},"system_fingerprint":"default"}
+repeat_b 466 ms
+{"id":"cmpl-5SyGT0QCeKaE3i2eCTgxE2lL-01a16263-793d-710c-9d56-772d3e602e39","object":"text_completion","created":1792652048,"model":"qwen35-0.8b","choices":[{"text":" Paris.\nThe capital of France is","index":0,"finish_reason":"length"}],"usage":{"prompt_tokens":5,"completion_tokens":8,"total_tokens":13,"prompt_tokens_details":{"cached_tokens":0}},"system_fingerprint":"default"}

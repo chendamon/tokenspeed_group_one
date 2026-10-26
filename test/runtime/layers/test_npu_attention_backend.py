@@ -23,22 +23,110 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import torch
+import torch.nn.functional as F
 
 from tokenspeed.runtime.configs.model_config import AttentionArch
+from tokenspeed.runtime.execution.model_executor import _with_prefill_sample_offsets
 from tokenspeed.runtime.layers import layernorm as layernorm_module
 from tokenspeed.runtime.layers.attention.backends.cache_metadata import (
     CacheBatchMetadata,
 )
 from tokenspeed.runtime.layers.attention.backends.paged.mha import MHAAttnBackend
+from tokenspeed.runtime.layers.attention.linear.layernorm_gated import rmsnorm_fn
 from tokenspeed.runtime.layers.attention.kv_cache.recipes.cache_runtime import (
     CacheRuntimeContract,
 )
 from tokenspeed.runtime.layers.attention.kv_cache.recipes.spec import CacheGroupSpec
 from tokenspeed.runtime.layers.attention.registry import _get_backend_cls
-from tokenspeed.runtime.layers.layernorm import RMSNorm
+from tokenspeed.runtime.layers.layernorm import GemmaRMSNorm, RMSNorm
+from tokenspeed.runtime.sampling.sampling_batch_info import SamplingBatchInfo
+from tokenspeed.runtime.utils.device_stream import new_device_stream
 from tokenspeed.runtime.utils.server_args import ServerArgs
 
 _NPU_AVAILABLE = hasattr(torch, "npu") and torch.npu.is_available()
+
+@pytest.mark.skipif(not _NPU_AVAILABLE, reason="requires Ascend")
+def test_npu_device_stream_and_gated_rmsnorm():
+    torch.manual_seed(7)
+    torch.npu.set_device(0)
+    stream = new_device_stream()
+    assert stream is not None
+    assert stream.device.index == 0
+
+    tokens, heads, dim = 17, 16, 128
+    x = torch.randn(tokens, heads * dim).to(torch.bfloat16).npu()
+    gate = torch.randn_like(x)
+    weight = torch.randn(dim).to(torch.bfloat16).npu()
+    output = rmsnorm_fn(
+        x,
+        weight,
+        z=gate,
+        eps=1e-6,
+        group_size=dim,
+        norm_before_gate=True,
+        sigmoid_gate=False,
+        weights_independent=True,
+    )
+    x_groups = x.float().reshape(tokens, heads, dim)
+    expected = (
+        x_groups
+        * torch.rsqrt(x_groups.square().mean(-1, keepdim=True) + 1e-6)
+        * weight.float().reshape(1, 1, dim)
+        * F.silu(gate.float().reshape(tokens, heads, dim))
+    ).to(torch.bfloat16).reshape_as(x)
+    torch.testing.assert_close(output, expected, atol=2e-2, rtol=2e-2)
+
+
+@pytest.mark.skipif(not _NPU_AVAILABLE, reason="requires Ascend")
+def test_npu_prefill_sample_offsets_do_not_mutate_runtime_frontier():
+    torch.npu.set_device(0)
+    cache_lengths = torch.zeros(8, dtype=torch.int32, device="npu")
+    cache_lengths[5] = 64
+    cache_lengths[2] = 41
+    expected = cache_lengths.clone()
+    info = SamplingBatchInfo(
+        req_pool_indices=torch.tensor([5], dtype=torch.int64, device="npu"),
+        valid_cache_lengths=cache_lengths,
+    )
+
+    output = _with_prefill_sample_offsets(
+        info, torch.tensor([36], dtype=torch.int32, device="npu")
+    )
+    torch.npu.synchronize()
+
+    torch.testing.assert_close(cache_lengths, expected, atol=0, rtol=0)
+    assert output.valid_cache_lengths is not cache_lengths
+    assert output.valid_cache_lengths[5].item() == 99
+    assert output.valid_cache_lengths[2].item() == 41
+
+
+@pytest.mark.skipif(not _NPU_AVAILABLE, reason="requires Ascend")
+def test_npu_gemma_rmsnorm_with_and_without_residual():
+    torch.manual_seed(11)
+    torch.npu.set_device(0)
+    norm = GemmaRMSNorm(1024, eps=1e-6).to(device="npu", dtype=torch.bfloat16)
+    loaded_weight = torch.randn(1024, device="npu", dtype=torch.bfloat16)
+    norm._weight_loader(norm.weight, loaded_weight)
+    x = torch.randn(7, 1024, device="npu", dtype=torch.bfloat16)
+
+    def reference(value):
+        value_float = value.float()
+        return (
+            value_float
+            * torch.rsqrt(value_float.square().mean(-1, keepdim=True) + 1e-6)
+            * (1.0 + loaded_weight.float())
+        ).to(torch.bfloat16)
+
+    torch.testing.assert_close(norm(x), reference(x), atol=2e-2, rtol=2e-2)
+
+    residual = torch.randn_like(x)
+    expected_residual = x + residual
+    output, updated_residual = norm(x, residual)
+    assert updated_residual is residual
+    torch.testing.assert_close(residual, expected_residual, atol=0, rtol=0)
+    torch.testing.assert_close(
+        output, reference(expected_residual), atol=2e-2, rtol=2e-2
+    )
 
 
 def test_npu_validates_required_options_without_rewriting_them():

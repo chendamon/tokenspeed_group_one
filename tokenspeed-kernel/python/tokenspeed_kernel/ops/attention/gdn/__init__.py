@@ -904,6 +904,9 @@ import tokenspeed_kernel.ops.attention.gdn.flashinfer  # noqa: E402,F401
 import tokenspeed_kernel.ops.attention.gdn.gluon  # noqa: E402,F401
 import tokenspeed_kernel.ops.attention.gdn.triton  # noqa: E402,F401
 
+if current_platform().is_npu:
+    import tokenspeed_kernel.ops.attention.gdn.ascend  # noqa: E402,F401
+
 # isort: on
 
 __all__ = [

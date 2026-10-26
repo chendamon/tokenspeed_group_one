@@ -1,0 +1,27 @@
+=== STEP02 SOURCE STATUS ===
+6f834a96e078aedc2d232425d1887b1ca813b9cc
+## main...origin/main
+?? .runtime/
+?? experiments/
+=== STEP02 ARTIFACTS ===
+backend_support_index.log	233992 bytes
+call_path_and_shapes.log	20727 bytes
+gdn_state_path.log	88595 bytes
+model_path_index.log	68941 bytes
+npu_existing_ops.log	39334 bytes
+npu_registry_probe.log	27905 bytes
+qwen35_path_excerpts.log	25832 bytes
+registry_capabilities.log	42252 bytes
+verification_summary.log	146 bytes
+=== BLOCKER EVIDENCE ===
+python/tokenspeed/runtime/models/qwen3_5.py:617:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/qwen3_5.py:761:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/qwen3_5.py:1044:        alt_stream = None if current_platform().is_amd else torch.cuda.Stream()
+python/tokenspeed/runtime/layers/attention/linear/layernorm_gated.py:159:    with torch.cuda.device(x.device.index):
+87:    capability=CapabilityRequirement(vendors=frozenset({"nvidia", "amd"})),
+545:    capability=CapabilityRequirement(vendors=frozenset({"nvidia", "amd"})),
+877:    capability=CapabilityRequirement(vendors=frozenset({"nvidia", "amd"})),
+1220:    capability=CapabilityRequirement(vendors=frozenset({"nvidia", "amd"})),
+tokenspeed-kernel-npu: no gdn implementation found
+=== NPU1 FINAL AVAILABILITY ===
+| No running processes found in NPU 1                                                            |

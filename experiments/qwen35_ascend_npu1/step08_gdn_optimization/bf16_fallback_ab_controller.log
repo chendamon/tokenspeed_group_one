@@ -1,0 +1,122 @@
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 30320 after 0 ms: Couldn't connect to server
+[ts]   warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+[ts] /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+[ts]   warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+[ts] [2026-10-22 07:48:37 ATTN TP RANK 0] Triton compile monitor is not available on NPU
+[ts] /home/u2601112013/tsenv/lib/python3.11/site-packages/transformers/modeling_rope_utils.py:1036: FutureWarning: `rope_config_validation` is deprecated and has been removed. Its functionality has been moved to RotaryEmbeddingConfigMixin.validate_rope method. PreTrainedConfig inherits this class, so please call self.validate_rope() instead. Also, make sure to use the new rope_parameters syntax. You can call self.standardize_rope_params() in the meantime.
+[ts]   warnings.warn(
+[ts] [38;20m[2026-10-22 07:48:37,138  ATTN TP RANK 0] - INFO - Running in language-model-only mode: vision/audio encoders will be skipped; requests with multimodal inputs will be rejected. (model_config.py:886)[0m
+[ts] [38;20m[2026-10-22 07:48:37,141  ATTN TP RANK 0] - INFO - Init torch distributed begin. Avail mem=60.7829 GB (distributed_initializer.py:148)[0m
+[ts] [Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[ts] [38;20m[2026-10-22 07:48:37,152  ATTN TP RANK 0] - INFO - Init comm buff end. Avail mem=60.7829 GB (distributed_initializer.py:285)[0m
+[ts] [38;20m[2026-10-22 07:48:37,152  ATTN TP RANK 0] - INFO - Current Process distributed state:  global rank: 0  attn_tp_rank: 0  attn_dp_rank: 0 (distributed_initializer.py:290)[0m
+[ts] [38;20m[2026-10-22 07:48:37,865  ATTN TP RANK 0] - INFO - Load weight begin. avail mem=60.78 GB (weight_loader.py:77)[0m
+[ts] [2026-10-22 07:48:38 ATTN TP RANK 0] using attn output gate!
+[ts] [38;20m[2026-10-22 07:48:38,360  ATTN TP RANK 0] - INFO - Prefetching 1/1 checkpoint shards as local reader 0/1 into the OS page cache (window 40.0 GiB, up to 8 range-reader threads). (weight_utils.py:527)[0m
+[ts] Loading safetensors checkpoint shards:   0% Completed | 0/1 [00:00<?, ?it/s]
+[ts] [38;20m[2026-10-22 07:48:38,465  ATTN TP RANK 0] - INFO - Checkpoint prefetch finished after 0.10s. (weight_utils.py:586)[0m
+[ts] Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.23it/s]
+[ts] Loading safetensors checkpoint shards: 100% Completed | 1/1 [00:00<00:00,  3.23it/s]
+[ts] 
+[ts] [38;20m[2026-10-22 07:48:38,770  ATTN TP RANK 0] - INFO - Load weight end. type=Qwen3_5ForConditionalGeneration, dtype=torch.bfloat16, avail mem=59.17 GB (weight_loader.py:122)[0m
+[ts] [38;20m[2026-10-22 07:48:38,771  ATTN TP RANK 0] - INFO - CUDA-graph memory reserve off, startup residue unreserved: --enforce-eager captures no graphs (device.py:1383)[0m
+[ts] [2026-10-22 07:48:38 ATTN TP RANK 0] Cache profile: parent_bytes=6623232, P=128, parents=32, token_capacity=16384, layers=24 (draft 0), groups={'full_attention': 4, 'linear_attention_0': 1, 'linear_attention_1': 1}
+[ts] [38;20m[2026-10-22 07:48:38,774  ATTN TP RANK 0] - INFO - Allocated cache arena: device_bytes=218566656, host_bytes=0, logical_plan_bytes=218566656, prefix_granularity=128, num_lcm_blocks=32, device npu (arena.py:205)[0m
+[ts] [38;20m[2026-10-22 07:48:38,776  ATTN TP RANK 0] - INFO - Initialized cache view over 16384 slots as torch.bfloat16, layers from 0, rank 0 (base.py:234)[0m
+[ts] [38;20m[2026-10-22 07:48:38,776  ATTN TP RANK 0] - INFO - KV Cache is allocated. K size: 0.09 GB, V size: 0.09 GB. (mha.py:98)[0m
+[ts] [2026-10-22 07:48:38 ATTN TP RANK 0] Created hybrid_linear_attn backend: 6 full attn layers, 18 linear attn layers, LCM state fields
+[ts] /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch/utils/_device.py:103: UserWarning: Cannot create tensor with interal format while allow_internel_format=False, tensor will be created with base format. (Triggered internally at build/CMakeFiles/torch_npu.dir/compiler_depend.ts:338.)
+[ts]   return func(*args, **kwargs)
+[ts] [2026-10-22 07:48:38 ATTN TP RANK 0] Batch-DP spec-verify: requested=False, infra_supports=False, enabled=False min_bs=None (drafter=False, backend_supports_dp=False, tp_size=1, tp_group=True)
+[ts] [38;20m[2026-10-22 07:48:38,796  ATTN TP RANK 0] - INFO - Prewarming Triton RSAG communication states (model_executor.py:954)[0m
+[ts] /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch/distributed/distributed_c10d.py:4876: UserWarning: barrier(): using the device under current context. You can specify `device_id` in `init_process_group` to mute this warning.
+[ts]   warnings.warn(  # warn only once
+[ts] [38;20m[2026-10-22 07:48:39,616  ATTN TP RANK 0] - INFO - Finished prewarming Triton RSAG communication states (model_executor.py:956)[0m
+[ts] [38;20m[2026-10-22 07:48:39,617  ATTN TP RANK 0] - INFO - ModelExecutor initialized (model_executor.py:796)[0m
+[ts] [38;20m[2026-10-22 07:48:39,617  ATTN TP RANK 0] - INFO - Kernel tuning disabled (--disable-autotune) (model_executor.py:1077)[0m
+[ts] [38;20m[2026-10-22 07:48:39,618  ATTN TP RANK 0] - INFO - workspace frozen: 256.00 MB (workspace.py:143)[0m
+[ts] [38;20m[2026-10-22 07:48:39,623  ATTN TP RANK 0] - INFO - Device memory summary (rank 0, npu 0, GB):
+[ts] +---------------------------------+------------+
+[ts] | Component                       |         GB |
+[ts] +---------------------------------+------------+
+[ts] | Attention weights               |       0.00 |
+[ts] | MoE weights                     |       0.33 |
+[ts] | Dense/MLP weights               |       0.16 |
+[ts] | Other weights (embed/head/norm) |       0.97 |
+[ts] | KV cache                        |       0.20 |
+[ts] | Activations + device graphs     |       0.25 |
+[ts] | Torch allocated (total)         |       1.92 |
+[ts] | Torch reserved (allocator pool) |       2.09 |
+[ts] | Non-torch (context/collectives) |       0.56 |
+[ts] | Device used (driver view)       |       2.65 |
+[ts] | Device free                     |      58.62 |
+[ts] | Device total                    |      61.27 |
+[ts] +---------------------------------+------------+ (scheduler_utils.py:1261)[0m
+[ts] [38;20m[2026-10-22 07:48:39,633  ATTN TP RANK 0] - INFO - Retraction snapshot pool: 0.02 GB (3 LCM blocks of 6291456 bytes; derived: 0.1 of 32 Device LCM blocks, no Host L2 tier), up to 4 retracted requests (0.00 MB slot-state arena); no Host L2 tier, whole images go to the pool (executor.py:450)[0m
+[ts] [38;20m[2026-10-22 07:48:39,634  ATTN TP RANK 0] - INFO - Scheduler config: prefix_granularity=128 num_device_pages=33 max_scheduled_tokens=8192 decode_input_tokens=1 overlap_schedule_depth=0 disable_l2_cache=True enable_l3_storage=False num_snapshot_pages=4 max_retracted_requests=4 debug_force_retraction_interval=0 max_batch_size=4 (global max_num_seqs=4, dp_size=1) disable_prefix_cache=True prefix_replay_tokens=0 cache_groups=['linear_attention_0', 'linear_attention_1', 'full_attention'] (event_loop.py:424)[0m
+[ts] [38;20m[2026-10-22 07:48:39,635  ATTN TP RANK 0] - INFO - Single-request token limit: cache=14336 model=4096 effective=4096 max_input=4095 (event_loop.py:489)[0m
+[ts] [2026-10-22 07:48:40] TokenSpeed engine ready: max_total_num_tokens=16384 max_req_input_len=4095
+[ts] [2026-10-22 07:48:40] TokenSpeed gRPC health service initialized
+[ts] [2026-10-22 07:48:40] TokenSpeedSchedulerServicer initialized
+[ts] [2026-10-22 07:48:40] TokenSpeed gRPC server listening on 127.0.0.1:56129
+[ts] [2026-10-22 07:48:40] Generate request WARMUP_1792655320.276723 (stream=False)
+[ts] [2026-10-22 07:48:40 ATTN TP RANK 0] Froze 615904 startup objects out of garbage collection; full collections now run between rounds
+[ts] [38;20m[2026-10-22 07:48:40,440  ATTN TP RANK 0] - INFO - Prefill batch. #dp-rank: 0, #new-seq: 1, #new-token: 1, #cached-token: 0, #running-req: 1, #queue-req: 0 (batch_log.py:166)[0m
+[ts] [38;20m[2026-10-22 07:48:41,372  ATTN TP RANK 0] - INFO - Req: WARMUP_1792655320.276723 Finish! RequestStats(status='finished', reason='length', prompt_tokens=1, cache_tokens=0, output_tokens=1, cache_hit_rate=0.0, queue_ms=163.33, prefill_ms=931.82, ttft_ms=1095.16, total_ms=1095.16, preempt_ms=0.0, preempt_count=0, decode_tps=0.0, acc_len=None, acc_rate=None, recv_ts=1792655320.277, commit_ts=1792655320.441, finish_ts=1792655321.373) (generation_output_processor.py:617)[0m
+[ts] [2026-10-22 07:48:41] Warmup generation succeeded
+[ts] [2026-10-22 07:48:41] TokenSpeed gRPC health status -> SERVING
+[ts] [2026-10-22 07:48:41] TokenSpeed gRPC server is ready to serve
+[smg] 
+[smg] thread '<unnamed>' (3246198) panicked at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tracing-appender-0.2.5/src/worker.rs:90:14:
+[smg] failed to spawn `tracing-appender` non-blocking worker thread: Os { code: 11, kind: WouldBlock, message: "Resource temporarily unavailable" }
+[smg] note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+[smg] Traceback (most recent call last):
+[smg]   File "<frozen runpy>", line 198, in _run_module_as_main
+[smg]   File "<frozen runpy>", line 88, in _run_code
+[smg]   File "/home/u2601112013/tokenspeed/.venv/lib/python3.11/site-packages/smg/__main__.py", line 8, in <module>
+[smg]     main()
+[smg]   File "/home/u2601112013/tokenspeed/.venv/lib/python3.11/site-packages/smg/cli.py", line 83, in main
+[smg]     launch_router(router_args)
+[smg]   File "/home/u2601112013/tokenspeed/.venv/lib/python3.11/site-packages/smg/launch_router.py", line 60, in launch_router
+[smg]     router.start()
+[smg]   File "/home/u2601112013/tokenspeed/.venv/lib/python3.11/site-packages/smg/router.py", line 497, in start
+[smg]     self._router.start()
+[smg] pyo3_runtime.PanicException: failed to spawn `tracing-appender` non-blocking worker thread: Os { code: 11, kind: WouldBlock, message: "Resource temporarily unavailable" }
+startup failed: smg subprocess exited with rc=1 during startup; see [smg] log lines above for the cause
+[ts] [2026-10-22 07:48:41] Received shutdown signal
+[ts] [2026-10-22 07:48:41] Shutting down TokenSpeed gRPC server
+[ts] [2026-10-22 07:48:41] TokenSpeed gRPC health status -> NOT_SERVING
+[ts] ERROR:    Traceback (most recent call last):
+[ts]   File "/home/u2601112013/tsenv/lib/python3.11/site-packages/starlette/routing.py", line 663, in lifespan
+[ts]     await receive()
+[ts]   File "/home/u2601112013/tsenv/lib/python3.11/site-packages/fastapi/telemetry/_runtime.py", line 214, in wrapped_receive
+[ts]     message = await receive()
+[ts]               ^^^^^^^^^^^^^^^
+[ts]   File "/home/u2601112013/tokenspeed/.venv/lib/python3.11/site-packages/uvicorn/lifespan/on.py", line 137, in receive
+[ts]     return await self.receive_queue.get()
+[ts]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ts]   File "/opt/miniconda3/envs/aics/lib/python3.11/asyncio/queues.py", line 158, in get
+[ts]     await getter
+[ts] asyncio.exceptions.CancelledError
+[ts] 

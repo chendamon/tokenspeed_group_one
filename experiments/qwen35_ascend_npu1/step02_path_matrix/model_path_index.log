@@ -1,0 +1,994 @@
+=== QWEN3.5 IMPORTS AND DEFINITIONS ===
+# Copyright (c) 2026 LightSeek Foundation
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+"""Inference-only Qwen3.5 model and Qwen3.5 MoE model compatible with HuggingFace weights."""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Iterable
+
+import torch
+import torch.nn as nn
+from tokenspeed_kernel.ops.activation.triton import sigmoid_mul
+from tokenspeed_kernel.platform import current_platform
+
+from tokenspeed.runtime.configs.qwen3_5_config import (
+    Qwen3_5Config,
+    Qwen3_5MoeConfig,
+    Qwen3_5TextConfig,
+)
+from tokenspeed.runtime.configs.utils import get_rope_parameters
+
+# Distributed
+from tokenspeed.runtime.distributed.comm_manager import CommManager
+from tokenspeed.runtime.distributed.mapping import Mapping
+from tokenspeed.runtime.execution.context import ForwardContext
+
+# Layers - Attention
+from tokenspeed.runtime.layers.attention.linear.layernorm_gated import (
+    RMSNorm as RMSNormGated,
+)
+
+# Layers - Others
+from tokenspeed.runtime.layers.layernorm import GemmaRMSNorm
+
+# Layers - Linear
+from tokenspeed.runtime.layers.linear import (
+    ColumnParallelLinear,
+    MergedColumnParallelLinear,
+    QKVParallelLinear,
+    RowParallelLinear,
+)
+from tokenspeed.runtime.layers.logits_processor import LogitsMetadata
+from tokenspeed.runtime.layers.moe import (
+    ExpertCheckpointSchema,
+    build_moe_checkpoint_loader,
+)
+from tokenspeed.runtime.layers.paged_attention import PagedAttention
+from tokenspeed.runtime.layers.parameter import (
+    BlockQuantScaleParameter,
+    PerTensorScaleParameter,
+)
+from tokenspeed.runtime.layers.quantization.base_config import QuantizationConfig
+from tokenspeed.runtime.layers.quantization.utils import check_equal_or_regex_match
+from tokenspeed.runtime.layers.rotary_embedding import get_rope
+from tokenspeed.runtime.layers.vocab_parallel_embedding import VocabParallelEmbedding
+from tokenspeed.runtime.model_loader.weight_utils import (
+    default_weight_loader,
+    mamba_v2_sharded_weight_loader,
+    sharded_weight_loader,
+)
+from tokenspeed.runtime.models.base import BaseCausalLM
+from tokenspeed.runtime.models.base.decoder_layer import capture_layer_input
+from tokenspeed.runtime.models.base.transformer_model import notify_target_capture
+from tokenspeed.runtime.models.qwen3_5_moe import (
+    Qwen3_5MoeMLP,
+    Qwen3_5MoeSparseMoeBlock,
+)
+from tokenspeed.runtime.models.qwen3_vision import Qwen3VLMoeVisionModel
+from tokenspeed.runtime.models.utils import validate_attention_partition
+from tokenspeed.runtime.moe.expert_location import ModelConfigForExpertLocation
+from tokenspeed.runtime.multimodal.embedder import (
+    EncoderSpec,
+    VisionEmbedder,
+    pad_input_tokens,
+)
+from tokenspeed.runtime.multimodal.encoder_cudagraph import (
+    EncoderForwardStepRunner,
+    VisionEncoderCudaGraphAdapter,
+)
+from tokenspeed.runtime.multimodal.inputs import (
+    Modality,
+    MultimodalDataItem,
+    MultimodalInputs,
+)
+from tokenspeed.runtime.utils import (
+    add_prefix,
+    make_layers,
+    set_weight_attrs,
+)
+from tokenspeed.runtime.utils.env import envs
+
+logger = logging.getLogger(__name__)
+
+
+def _is_ignored_checkpoint_param(model, name: str) -> bool:
+    """Whether ``name`` is a checkpoint tensor the owning module's quant method
+    deliberately does not consume (e.g. a residual A16 ``input_scale``).
+
+    The decision is owned by the layer's quant method via its
+    ``ignored_checkpoint_params`` attribute, so a method that genuinely uses the
+    tensor (e.g. static FP8 ``input_scale``) still loads it.
+    """
+    parent, _, leaf = name.rpartition(".")
+    if not parent:
+        return False
+    try:
+        module = model.get_submodule(parent)
+    except AttributeError:
+        return False
+    quant_method = getattr(module, "quant_method", None)
+    return leaf in getattr(quant_method, "ignored_checkpoint_params", ())
+
+
+def _gdn_group_unquantized(prefix, shard_names, quant_config) -> bool:
+    is_quantized_layer = getattr(quant_config, "is_quantized_layer", None)
+    if is_quantized_layer is not None:
+        quantized = {is_quantized_layer(f"{prefix}.{shard}") for shard in shard_names}
+        if len(quantized) > 1:
+            raise ValueError(
+                f"Partially quantized Gated DeltaNet projection group at {prefix}"
+            )
+        return not quantized.pop()
+
+    ignored_layers = getattr(quant_config, "ignored_layers", None) or []
+    if not ignored_layers:
+        return False
+    targets = list(ignored_layers)
+    norm_targets = [t.replace("language_model.", "") for t in targets]
+    for shard in shard_names:
+        full = f"{prefix}.{shard}"
+        norm = full.replace("language_model.", "")
+        if not (
+            check_equal_or_regex_match(full, targets)
+            or check_equal_or_regex_match(norm, norm_targets)
+        ):
+            return False
+    return True
+
+
+def _gdn_in_proj_stacked_mapping(param_names) -> list:
+    if any(name.endswith(".in_proj_qkvz.weight") for name in param_names):
+        return [
+            ("in_proj_qkvz.", "in_proj_qkv.", (0, 1, 2)),
+            ("in_proj_qkvz.", "in_proj_z.", 3),
+            ("in_proj_ba.", "in_proj_b.", 0),
+            ("in_proj_ba.", "in_proj_a.", 1),
+        ]
+    return [
+        ("in_proj_qkvzba.", "in_proj_qkv.", (0, 1, 2)),
+        ("in_proj_qkvzba.", "in_proj_z.", 3),
+        ("in_proj_qkvzba.", "in_proj_b.", 4),
+        ("in_proj_qkvzba.", "in_proj_a.", 5),
+    ]
+
+
+def _input_norm(
+    comm_manager: CommManager,
+    norm: GemmaRMSNorm,
+    hidden_states: torch.Tensor,
+    residual: torch.Tensor | None,
+    fp8_scale: torch.Tensor | None,
+) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor]:
+31:from tokenspeed_kernel.platform import current_platform
+46:from tokenspeed.runtime.layers.attention.linear.layernorm_gated import (
+65:from tokenspeed.runtime.layers.paged_attention import PagedAttention
+87:from tokenspeed.runtime.models.utils import validate_attention_partition
+177:    hidden_states: torch.Tensor,
+183:    Past the first layer, without attention TP and with the fused layer boundary, one
+192:        hidden_states, residual = comm_manager.input_reduce_norm(
+193:            hidden_states, residual
+195:        return hidden_states, None, residual
+196:    return norm.add_norm_with_fp8(hidden_states, residual, fp8_scale)
+202:    hidden_states: torch.Tensor,
+207:    """The post-attention add + norm, plus gate_up_proj's NVFP4 input for ``fp4_scale``.
+209:    Without attention TP one kernel adds, normalizes and, unless dense TP gathers
+213:        hidden_states, residual = comm_manager.post_attn_reduce_norm(
+214:            hidden_states, residual, ctx
+216:        return hidden_states, None, residual
+219:    return norm.add_norm_with_fp4(hidden_states, residual, fp4_scale)
+222:class Qwen3_5GatedDeltaNet(nn.Module):
+223:    def __init__(
+245:        self.conv_kernel_size = config.linear_conv_kernel_dim
+251:        self.conv_dim = self.key_dim * 2 + self.value_dim
+252:        self.conv1d = ColumnParallelLinear(
+253:            input_size=self.conv_kernel_size,
+254:            output_size=self.conv_dim,
+260:            prefix=add_prefix("conv1d", prefix),
+262:        self.conv1d.weight.data = self.conv1d.weight.data.unsqueeze(1)
+332:        delattr(self.conv1d.weight, "weight_loader")
+334:            self.conv1d.weight,
+369:        conv_weights = self.conv1d.weight.view(
+370:            self.conv1d.weight.size(0), self.conv1d.weight.size(2)
+373:        self.conv_weights = conv_weights
+526:        self, hidden_states: torch.Tensor, hidden_fp8: torch.Tensor | None
+528:        projection_input = hidden_states if hidden_fp8 is None else hidden_fp8
+530:            projected_states_qkvz, _ = self.in_proj_qkvz(projection_input)
+531:            projected_states_ba, _ = self.in_proj_ba(hidden_states)
+532:            return projected_states_qkvz, projected_states_ba
+534:        projected_states_qkvz, projected_states_ba = projected_all.split(
+537:        return projected_states_qkvz, projected_states_ba
+539:    def forward(
+541:        hidden_states: torch.Tensor,
+545:        seq_len, _ = hidden_states.shape
+547:        projected_states_qkvz, projected_states_ba = self._forward_input_proj(
+548:            hidden_states, hidden_fp8
+556:            mixed_qkv, z = projected_states_qkvz.split(
+557:                [projected_states_qkvz.shape[-1] - v_tp, v_tp], dim=-1
+559:            b, a = projected_states_ba.split(self.num_v_heads // self.attn_tp_size, -1)
+562:                projected_states_qkvz, projected_states_ba
+571:            "conv_weights": self.conv_weights,
+572:            "bias": self.conv1d.bias,
+576:            "attention_tp_size": self.attn_tp_size,
+607:class Qwen3_5LinearDecoderLayer(nn.Module):
+610:    def __init__(
+617:        alt_stream: torch.cuda.Stream | None = None,
+656:        self.post_attention_layernorm = GemmaRMSNorm(
+668:            post_attn_layernorm=self.post_attention_layernorm,
+672:    def forward(
+674:        hidden_states: torch.Tensor,
+677:        aux_hidden_states: list[torch.Tensor] | None = None,
+686:            hidden_states, hidden_fp8, residual = _input_norm(
+689:                hidden_states,
+693:            capture_layer_input(self.comm_manager, residual, ctx, aux_hidden_states)
+694:            hidden_states = self.comm_manager.pre_attn_comm(hidden_states, ctx)
+696:            hidden_states = self.linear_attn(
+697:                hidden_states,
+704:            hidden_states, hidden_fp4, residual = _post_attn_norm(
+706:                self.post_attention_layernorm,
+707:                hidden_states,
+715:                self.comm_manager, hidden_states, ctx, aux_hidden_states
+718:        hidden_states = self.forward_mlp(
+719:            hidden_states,
+727:        return hidden_states, residual
+729:    def forward_mlp(
+731:        hidden_states,
+739:            hidden_states = self.mlp(
+740:                hidden_states, num_global_tokens, max_num_tokens_per_gpu, ctx
+743:            hidden_states = self.comm_manager.pre_mlp_comm(hidden_states, ctx)
+744:            hidden_states = self.mlp.forward_prequantized(hidden_states, hidden_fp4)
+745:            hidden_states, residual = self.comm_manager.post_mlp_fused(
+746:                hidden_states, residual, ctx
+748:        return hidden_states
+751:class Qwen3_5AttentionDecoderLayer(nn.Module):
+754:    def __init__(
+761:        alt_stream: torch.cuda.Stream | None = None,
+770:        self.total_num_heads = config.num_attention_heads
+772:        validate_attention_partition(
+876:        self.post_attention_layernorm = GemmaRMSNorm(
+888:            post_attn_layernorm=self.post_attention_layernorm,
+893:        self, hidden_states: torch.Tensor
+896:        qkv, _ = self.qkv_proj(hidden_states)
+921:    def self_attention(
+924:        hidden_states: torch.Tensor,
+927:        """Full attention forward pass; ``hidden_states`` may be qkv_proj's FP8 copy, which only ``_project_qkv`` reads."""
+928:        q, k, v, gate = self._project_qkv(hidden_states)
+941:    def forward(
+944:        hidden_states: torch.Tensor,
+947:        aux_hidden_states: list[torch.Tensor] | None = None,
+956:            hidden_states, hidden_fp8, residual = _input_norm(
+959:                hidden_states,
+963:            capture_layer_input(self.comm_manager, residual, ctx, aux_hidden_states)
+964:            hidden_states = self.comm_manager.pre_attn_comm(hidden_states, ctx)
+966:            hidden_states = self.self_attention(
+968:                hidden_states=hidden_states if hidden_fp8 is None else hidden_fp8,
+974:            hidden_states, hidden_fp4, residual = _post_attn_norm(
+976:                self.post_attention_layernorm,
+977:                hidden_states,
+985:                self.comm_manager, hidden_states, ctx, aux_hidden_states
+988:        hidden_states = self.forward_mlp(
+989:            hidden_states,
+997:        return hidden_states, residual
+999:    def forward_mlp(
+1001:        hidden_states,
+1009:            hidden_states = self.mlp(
+1010:                hidden_states, num_global_tokens, max_num_tokens_per_gpu, ctx
+1013:            hidden_states = self.comm_manager.pre_mlp_comm(hidden_states, ctx)
+1014:            hidden_states = self.mlp.forward_prequantized(hidden_states, hidden_fp4)
+1015:            hidden_states, residual = self.comm_manager.post_mlp_fused(
+1016:                hidden_states, residual, ctx
+1018:        return hidden_states
+1021:class Qwen3_5ForCausalLM(nn.Module):
+1027:    def __init__(
+1044:        alt_stream = None if current_platform().is_amd else torch.cuda.Stream()
+1057:            "attention": self.ATTENTION_LAYER_CLS,
+1058:            "linear_attention": self.LINEAR_LAYER_CLS,
+1064:            if layer_type == "attention":
+1087:        # *input* hidden states are captured. Populated by
+1097:    def forward(
+1106:        # Initialize hidden states
+1113:                hidden_states = self.embed_tokens(input_ids, reduce_results=False)
+1114:                residual = torch.zeros_like(hidden_states)
+1116:                hidden_states = self.embed_tokens(input_ids)
+1119:            hidden_states = input_embeds
+1122:        aux_hidden_states = [] if self.layers_to_capture else None
+1128:            hidden_states, residual = layer(
+1130:                hidden_states=hidden_states,
+1133:                aux_hidden_states=aux_hidden_states if capture else None,
+1140:                    aux_hidden_states,
+1150:                # Add to the residual: under all-reduce fusion hidden_states is
+1157:        hidden_states, _ = layer.comm_manager.final_norm(
+1158:            hidden_states, residual, ctx, self.norm
+1161:        return hidden_states, aux_hidden_states
+1163:    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
+1222:class Qwen3_5MoeModel(Qwen3_5ForCausalLM):
+1226:    def __init__(
+1237:    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
+1342:class Qwen3_5ForConditionalGeneration(BaseCausalLM):
+1345:    def __init__(
+1352:        mm_attention_backend: str | None = None,
+1379:                mm_attention_backend=mm_attention_backend,
+1393:                f"hidden_state of {embedding.shape} should be divisible by {divisor}"
+1554:    def forward(
+1581:        hidden_states, aux_hidden_states = self.model(
+1591:            hidden_states,
+1594:            aux_hidden_states,
+1611:    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
+1683:class Qwen3_5MoeForConditionalGeneration(Qwen3_5ForConditionalGeneration):
+1688:    def __init__(
+1695:        mm_attention_backend: str | None = None,
+1703:            mm_attention_backend=mm_attention_backend,
+1706:    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
+1826:class Qwen3_5MoeForCausalLM(Qwen3_5MoeForConditionalGeneration):
+1829:    def __init__(
+=== PLATFORM ABSTRACTION ===
+python/tokenspeed/env.py:33:def is_cuda_build() -> bool:
+python/tokenspeed/env.py:132:    if is_cuda_build():
+python/tokenspeed/env.py:178:    if is_cuda_build():
+python/tokenspeed/env.py:203:    if is_cuda_build():
+python/tokenspeed/env.py:245:    if is_cuda_build():
+python/tokenspeed/env.py:288:    if is_cuda_build():
+python/tokenspeed/env.py:338:        if is_cuda_build():
+python/tokenspeed/runtime/utils/server_args.py:929:        if current_platform().is_amd:
+python/tokenspeed/runtime/utils/server_args.py:999:            elif current_platform().is_npu:
+python/tokenspeed/runtime/utils/server_args.py:1679:            and (current_platform().is_hopper_plus or platform.is_amd)
+python/tokenspeed/runtime/utils/server_args.py:2149:        if not current_platform().is_amd:
+python/tokenspeed/cli/serve_smg.py:731:        tag_stream(proc.stdout, tag, sys.stdout),
+python/tokenspeed/cli/serve_smg.py:732:        tag_stream(proc.stderr, tag, sys.stderr),
+python/tokenspeed/runtime/utils/device_stream.py:27:def new_device_stream():
+python/tokenspeed/runtime/utils/device_stream.py:36:    return device_module.Stream()
+python/tokenspeed/runtime/utils/device_stream.py:75:class StreamFork:
+python/tokenspeed/runtime/utils/device_stream.py:107:            self._current = self.device_module.current_stream()
+python/tokenspeed/runtime/utils/device_stream.py:123:        with self.device_module.stream(self.aux_stream):
+python/tokenspeed/cli/_logprefix.py:37:async def tag_stream(reader: asyncio.StreamReader, tag: str, sink: _Sink) -> None:
+python/tokenspeed/runtime/utils/cuda_stream.py:26:class StreamFork:
+python/tokenspeed/runtime/utils/cuda_stream.py:27:    def __init__(self, aux_stream: torch.cuda.Stream | None):
+python/tokenspeed/runtime/utils/cuda_stream.py:34:        self._current: torch.cuda.Stream | None = None
+python/tokenspeed/runtime/utils/cuda_stream.py:51:            self._current = torch.cuda.current_stream()
+python/tokenspeed/runtime/utils/cuda_stream.py:99:        with torch.cuda.stream(self.aux_stream):
+python/tokenspeed/runtime/cache/transfer/lanes.py:59:    priority_range = getattr(device_module.Stream, "priority_range", None)
+python/tokenspeed/runtime/cache/transfer/lanes.py:69:def new_cache_stream(priority: int | None):
+python/tokenspeed/runtime/cache/transfer/lanes.py:72:        return device_module.Stream()
+python/tokenspeed/runtime/cache/transfer/lanes.py:74:        return device_module.Stream(priority=priority)
+python/tokenspeed/runtime/cache/transfer/lanes.py:76:        return device_module.Stream()
+python/tokenspeed/runtime/cache/transfer/lanes.py:255:        with device_module.stream(stream):
+python/tokenspeed/runtime/cache/transfer/lanes.py:319:            stream.wait_stream(prerequisite_stream)
+python/tokenspeed/runtime/utils/hostfunc.py:81:// stream_ptr: CUstream as uintptr_t (torch.cuda.Stream.cuda_stream)
+python/tokenspeed/runtime/utils/hostfunc.py:97:    cudaStream_t stream = reinterpret_cast<cudaStream_t>(stream_ptr);
+python/tokenspeed/runtime/utils/hostfunc.py:179:    stream = torch.cuda.current_stream()
+python/tokenspeed/runtime/epd/prefill_hooks.py:134:            # and leaks the sender. Stream its finish instead.
+python/tokenspeed/runtime/utils/common.py:950:    ch = logging.StreamHandler()
+python/tokenspeed/runtime/sampling/registry.py:43:    if current_platform().is_npu:
+python/tokenspeed/runtime/sampling/registry.py:77:    if current_platform().is_npu and name == "ascend_full":
+python/tokenspeed/runtime/cache/l2/layerwise_load.py:48:            device_module.current_stream().wait_event(self.layer_ready_init_event)
+python/tokenspeed/runtime/cache/l2/layerwise_load.py:51:        device_module.current_stream().wait_event(self.layer_done_events[layer_index])
+python/tokenspeed/runtime/epd/prefill_admission.py:92:    if not tensor.is_cuda:
+python/tokenspeed/runtime/epd/prefill_admission.py:95:    torch.cuda.current_stream(tensor.device).record_event(event)
+python/tokenspeed/runtime/epd/prefill_admission.py:1021:            torch.cuda.current_stream().synchronize()
+python/tokenspeed/runtime/configs/inkling_config.py:58:class InklingConvStream(enum.IntEnum):
+python/tokenspeed/runtime/configs/inkling_config.py:69:) -> dict[InklingConvStream, tuple[int, int]]:
+python/tokenspeed/runtime/configs/inkling_config.py:92:        InklingConvStream.K: kv_dim,
+python/tokenspeed/runtime/configs/inkling_config.py:93:        InklingConvStream.V: kv_dim,
+python/tokenspeed/runtime/configs/inkling_config.py:94:        InklingConvStream.ATTN: hidden,
+python/tokenspeed/runtime/configs/inkling_config.py:95:        InklingConvStream.MLP: hidden,
+python/tokenspeed/runtime/configs/inkling_config.py:97:    layout: dict[InklingConvStream, tuple[int, int]] = {}
+python/tokenspeed/runtime/configs/inkling_config.py:99:    for stream in InklingConvStream:
+python/tokenspeed/runtime/configs/inkling_config.py:146:    last_offset, last_dim = layout[InklingConvStream.MLP]
+python/tokenspeed/runtime/cache/l2/executor.py:482:        self.write_stream = new_cache_stream(None)
+python/tokenspeed/runtime/cache/l2/executor.py:483:        self.load_stream = new_cache_stream(load_stream_priority())
+python/tokenspeed/runtime/cache/l2/executor.py:1229:        self.write_stream.wait_stream(prerequisite_stream)
+python/tokenspeed/runtime/cache/l2/executor.py:1291:        self.load_stream.wait_stream(prerequisite_stream)
+python/tokenspeed/runtime/cache/l2/executor.py:1497:            with device_module.stream(self.load_stream):
+python/tokenspeed/runtime/cache/l2/executor.py:1584:                with device_module.stream(self.load_stream):
+python/tokenspeed/runtime/layers/vocab_parallel_embedding.py:530:            input_.is_cuda
+python/tokenspeed/runtime/layers/vocab_parallel_embedding.py:535:            and self.weight.is_cuda
+python/tokenspeed/runtime/entrypoints/engine.py:203:            return self.llm.generate_stream(obj)
+python/tokenspeed/runtime/sampling/backends/greedy.py:99:    if _verify_chain_greedy_cuda is not error_fn and candidates.is_cuda:
+python/tokenspeed/runtime/entrypoints/control_server.py:44:from fastapi.responses import JSONResponse, Response, StreamingResponse
+python/tokenspeed/runtime/entrypoints/control_server.py:189:) -> StreamingResponse | Response:
+python/tokenspeed/runtime/entrypoints/control_server.py:230:        return StreamingResponse(
+python/tokenspeed/runtime/entrypoints/control_server.py:436:) -> StreamingResponse | Response:
+python/tokenspeed/runtime/model_loader/loader.py:443:        """Stream the checkpoint at ``model_path`` the way ``load_model`` does.
+python/tokenspeed/runtime/layers/ple_lookup.py:69:    execution_stream: torch.cuda.Stream | None
+python/tokenspeed/runtime/layers/ple_lookup.py:178:        self._gather_stream: torch.cuda.Stream | None = None
+python/tokenspeed/runtime/layers/ple_lookup.py:264:            torch.cuda.current_stream(ids.device) if ids.is_cuda else None
+python/tokenspeed/runtime/layers/ple_lookup.py:271:                self._gather_stream = torch.cuda.Stream(device=ids.device)
+python/tokenspeed/runtime/layers/ple_lookup.py:273:            stream.wait_stream(torch.cuda.current_stream(ids.device))
+python/tokenspeed/runtime/layers/ple_lookup.py:274:            gathered_ids.record_stream(stream)
+python/tokenspeed/runtime/layers/ple_lookup.py:275:            out.record_stream(stream)
+python/tokenspeed/runtime/layers/ple_lookup.py:276:            with torch.cuda.stream(stream):
+python/tokenspeed/runtime/layers/ple_lookup.py:282:            if ids.is_cuda:
+python/tokenspeed/runtime/layers/ple_lookup.py:284:                completion.record(torch.cuda.current_stream(ids.device))
+python/tokenspeed/runtime/layers/ple_lookup.py:297:            consumer = torch.cuda.current_stream(pending.embeddings.device)
+python/tokenspeed/runtime/layers/ple_lookup.py:299:            with torch.cuda.stream(stream):
+python/tokenspeed/runtime/layers/ple_lookup.py:301:                pending.embeddings.record_stream(stream)
+python/tokenspeed/runtime/layers/ple_lookup.py:303:                    tensor.record_stream(stream)
+python/tokenspeed/runtime/layers/ple_lookup.py:309:            values.record_stream(consumer)
+python/tokenspeed/runtime/models/deepseek_v3.py:92:    get_is_cuda_graph_phase,
+python/tokenspeed/runtime/models/deepseek_v3.py:141:from tokenspeed.runtime.utils.cuda_stream import StreamFork
+python/tokenspeed/runtime/models/deepseek_v3.py:371:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/deepseek_v3.py:378:        self.stream_fork = StreamFork(alt_stream)
+python/tokenspeed/runtime/models/deepseek_v3.py:458:            enable=get_is_cuda_graph_phase(), overlap=get_is_capture_mode()
+python/tokenspeed/runtime/models/deepseek_v3.py:615:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/deepseek_v3.py:1801:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/deepseek_v3.py:2011:        self.alt_stream = torch.cuda.Stream()
+python/tokenspeed/runtime/layers/segmented_rmsnorm.py:42:    if not x.is_cuda or not weight.is_cuda:
+python/tokenspeed/runtime/layers/layernorm.py:60:_is_amd = _platform.is_amd
+python/tokenspeed/runtime/layers/layernorm.py:82:if _is_amd:
+python/tokenspeed/runtime/layers/layernorm.py:277:        if _is_amd:
+python/tokenspeed/runtime/layers/layernorm.py:356:        if _is_amd:
+python/tokenspeed/runtime/layers/layernorm.py:524:        if _platform.is_npu:
+python/tokenspeed/runtime/layers/layernorm.py:533:        elif _is_amd:
+python/tokenspeed/runtime/distributed/device_communicators/pynccl.py:34:    cudaStream_t,
+python/tokenspeed/runtime/distributed/device_communicators/pynccl.py:138:            self.stream = torch.cuda.Stream()
+python/tokenspeed/runtime/distributed/device_communicators/pynccl.py:176:            cudaStream_t(stream.cuda_stream),
+python/tokenspeed/runtime/distributed/device_communicators/pynccl.py:196:            cudaStream_t(stream.cuda_stream),
+python/tokenspeed/runtime/distributed/device_communicators/pynccl.py:221:            cudaStream_t(stream.cuda_stream),
+python/tokenspeed/runtime/distributed/device_communicators/pynccl.py:236:            cudaStream_t(stream.cuda_stream),
+python/tokenspeed/runtime/distributed/device_communicators/pynccl.py:251:            cudaStream_t(stream.cuda_stream),
+python/tokenspeed/runtime/distributed/device_communicators/pynccl.py:274:            cudaStream_t(stream.cuda_stream),
+python/tokenspeed/runtime/distributed/device_communicators/pynccl.py:279:        self, enable: bool | None = None, stream: torch.cuda.Stream | None = None
+python/tokenspeed/runtime/engine/collector.py:27:# Streaming merge policy for the logprob meta_info fields. These are the UNION
+python/tokenspeed/runtime/engine/collector.py:62:    Streaming merges mutate an owned pending dict in place so that N sequential
+python/tokenspeed/runtime/sampling/backends/flashinfer.py:179:            # Pre-create the fused renorm side stream: cudaStreamCreate is
+python/tokenspeed/runtime/models/deepseek_nextn.py:108:        self.alt_stream = torch.cuda.Stream()
+python/tokenspeed/runtime/models/qwen4_exp.py:102:    alt_stream: torch.cuda.Stream | None,
+python/tokenspeed/runtime/models/qwen4_exp.py:147:        if x.is_cuda:
+python/tokenspeed/runtime/models/qwen4_exp.py:289:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/qwen4_exp.py:354:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/layers/rotary_embedding.py:1360:                device="npu" if current_platform().is_npu else "cuda",
+python/tokenspeed/runtime/layers/attention/registry.py:799:    if is_kda and name is None and not current_platform().is_amd:
+python/tokenspeed/runtime/moe/expert_load_rows.py:122:        host = torch.zeros(total, dtype=torch.bool, pin_memory=mask.is_cuda)
+python/tokenspeed/runtime/engine/llm.py:100:    def generate_stream(self, obj: GenerateReqInput) -> Iterator[dict]:
+python/tokenspeed/runtime/models/beam.py:72:    get_is_cuda_graph_phase,
+python/tokenspeed/runtime/models/beam.py:117:from tokenspeed.runtime.utils.cuda_stream import StreamFork
+python/tokenspeed/runtime/models/beam.py:173:        and x.is_cuda
+python/tokenspeed/runtime/models/beam.py:911:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/beam.py:940:            self.stream_fork = StreamFork(alt_stream)
+python/tokenspeed/runtime/models/beam.py:983:            enable=get_is_cuda_graph_phase(), overlap=get_is_capture_mode()
+python/tokenspeed/runtime/models/beam.py:1136:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/beam.py:1350:            torch.cuda.Stream()
+python/tokenspeed/runtime/layers/qwen4_exp_ple.py:502:        if not field.is_cuda:
+python/tokenspeed/runtime/layers/qwen4_exp_ple.py:523:        if not field.is_cuda:
+python/tokenspeed/runtime/layers/qwen4_exp_ple.py:690:            values.is_cuda and state_len and windows_out is not None
+python/tokenspeed/runtime/layers/qwen4_exp_ple.py:697:        if values.is_cuda and state_len:
+python/tokenspeed/runtime/layers/qwen4_exp_ple.py:922:        if input_ids.is_cuda:
+python/tokenspeed/runtime/layers/qwen4_exp_ple.py:973:        elif plan.flat_ids.is_cuda:
+python/tokenspeed/runtime/layers/qwen4_exp_ple.py:1050:        if key.is_cuda:
+python/tokenspeed/runtime/layers/qwen4_exp_ple.py:1065:        if verify and not flat_ids.is_cuda:
+python/tokenspeed/runtime/distributed/comm_backend/registry.py:37:    if current_platform().is_npu:
+python/tokenspeed/runtime/models/qwen3_asr.py:214:        """Stream the official ``thinker.*`` ASR checkpoint layout."""
+python/tokenspeed/runtime/distributed/comm_backend/auto.py:373:                and current_platform().is_amd
+python/tokenspeed/runtime/distributed/comm_backend/auto.py:384:                current_platform().is_amd
+python/tokenspeed/runtime/distributed/comm_backend/auto.py:436:            not current_platform().is_amd
+python/tokenspeed/runtime/distributed/comm_backend/auto.py:482:        if current_platform().is_amd:
+python/tokenspeed/runtime/distributed/comm_backend/auto.py:503:        if current_platform().is_amd and not self._iris.can_acquire_outputs(
+python/tokenspeed/runtime/multimodal/hash.py:59:        if buffer.is_cuda:
+python/tokenspeed/runtime/layers/attention/mm_encoder_attention.py:59:_is_amd = _platform.is_amd
+python/tokenspeed/runtime/layers/attention/mm_encoder_attention.py:287:        is_cuda_graph_compatible=True,
+python/tokenspeed/runtime/layers/attention/mm_encoder_attention.py:310:    if _is_amd:
+python/tokenspeed/runtime/distributed/comm_backend/iris.py:114:        if len(group) <= 1 or not current_platform().is_amd:
+python/tokenspeed/runtime/distributed/comm_backend/iris.py:136:        if len(group) <= 1 or not current_platform().is_amd:
+python/tokenspeed/runtime/distributed/comm_backend/iris.py:144:            and tensor.is_cuda
+python/tokenspeed/runtime/distributed/comm_backend/iris.py:205:        if not current_platform().is_cdna4 or not like.is_cuda:
+python/tokenspeed/runtime/engine/generation_output_processor.py:215:        # --- Streaming bookkeeping (internal) ---
+python/tokenspeed/runtime/engine/generation_output_processor.py:486:    """Streams generation output to the detokenizer.
+python/tokenspeed/runtime/engine/generation_output_processor.py:669:        """Stream a finish for a request that was finished before admission.
+python/tokenspeed/runtime/engine/generation_output_processor.py:690:        Stream the terminating finish to a passive client (pause-initiated
+python/tokenspeed/runtime/multimodal/encoder_feature_transport.py:140:        self._h2d_stream: torch.cuda.Stream | None = None
+python/tokenspeed/runtime/multimodal/encoder_feature_transport.py:288:        current = torch.cuda.current_stream(device)
+python/tokenspeed/runtime/multimodal/encoder_feature_transport.py:289:        with torch.cuda.stream(h2d):
+python/tokenspeed/runtime/multimodal/encoder_feature_transport.py:307:        current.wait_stream(h2d)
+python/tokenspeed/runtime/multimodal/encoder_feature_transport.py:310:                item.feature.record_stream(current)
+python/tokenspeed/runtime/multimodal/encoder_feature_transport.py:335:    def _h2d_stream_on(self, device: torch.device) -> torch.cuda.Stream:
+python/tokenspeed/runtime/multimodal/encoder_feature_transport.py:337:            self._h2d_stream = torch.cuda.Stream(device=device)
+python/tokenspeed/runtime/models/qwen3_5_moe.py:46:    get_is_cuda_graph_phase,
+python/tokenspeed/runtime/models/qwen3_5_moe.py:68:from tokenspeed.runtime.utils.cuda_stream import StreamFork
+python/tokenspeed/runtime/models/qwen3_5_moe.py:287:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/qwen3_5_moe.py:293:        self.stream_fork = StreamFork(alt_stream)
+python/tokenspeed/runtime/models/qwen3_5_moe.py:421:                and get_is_cuda_graph_phase()
+python/tokenspeed/runtime/layers/moe/latent.py:51:from tokenspeed.runtime.execution.forward_step import get_is_cuda_graph_phase
+python/tokenspeed/runtime/layers/moe/latent.py:54:from tokenspeed.runtime.utils.cuda_stream import StreamFork
+python/tokenspeed/runtime/layers/moe/latent.py:145:        alt_stream: torch.cuda.Stream | None,
+python/tokenspeed/runtime/layers/moe/latent.py:224:    ``get_is_cuda_graph_phase`` cannot decide those two regimes apart, which
+python/tokenspeed/runtime/layers/moe/latent.py:536:        shared_expert_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/layers/moe/latent.py:590:        self.stream_fork = StreamFork(shared_expert_stream)
+python/tokenspeed/runtime/layers/moe/latent.py:670:            and not get_is_cuda_graph_phase()
+python/tokenspeed/runtime/layers/moe/latent.py:718:        # When overlap is enabled, StreamFork runs the shared-expert MLP on
+python/tokenspeed/runtime/engine/detokenizer.py:231:            # Streaming chunk: update the decode status
+python/tokenspeed/runtime/engine/detokenizer.py:329:            # Streaming chunk: update the decode status
+python/tokenspeed/runtime/engine/event_loop.py:150:    if not torch.cuda.is_available() or current_platform().is_amd:
+python/tokenspeed/runtime/models/qwen3_5.py:617:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/qwen3_5.py:761:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/qwen3_5.py:1044:        alt_stream = None if current_platform().is_amd else torch.cuda.Stream()
+python/tokenspeed/runtime/layers/quantization/mxfp4.py:49:def _is_amd_quark_w_mxfp4_a_fp8(config: Mapping[str, Any]) -> bool:
+python/tokenspeed/runtime/layers/quantization/mxfp4.py:52:    if not current_platform().is_amd:
+python/tokenspeed/runtime/layers/quantization/mxfp4.py:71:def _is_amd_quark_dynamic_mxfp4(config: Mapping[str, Any]) -> bool:
+python/tokenspeed/runtime/layers/quantization/mxfp4.py:74:    if not current_platform().is_amd:
+python/tokenspeed/runtime/layers/quantization/mxfp4.py:102:def _is_amd_quark_mxfp4_checkpoint(config: dict) -> bool:
+python/tokenspeed/runtime/layers/quantization/mxfp4.py:105:    return _is_amd_quark_w_mxfp4_a_fp8(config) or _is_amd_quark_dynamic_mxfp4(config)
+python/tokenspeed/runtime/layers/quantization/mxfp4.py:243:        is_w4a8_fp8 = _is_amd_quark_w_mxfp4_a_fp8(config)
+python/tokenspeed/runtime/layers/quantization/mxfp4.py:244:        use_dynamic_mxfp4_activations = _is_amd_quark_dynamic_mxfp4(config)
+python/tokenspeed/runtime/layers/quantization/mxfp4.py:253:            if _is_amd_quark_mxfp4_checkpoint(config)
+python/tokenspeed/runtime/layers/quantization/mxfp4.py:287:        if user_quant in {"mxfp4", None} and _is_amd_quark_mxfp4_checkpoint(
+python/tokenspeed/runtime/multimodal/embedder.py:109:            tensor.record_stream(torch.cuda.current_stream(tensor.device))
+python/tokenspeed/runtime/multimodal/embedder.py:368:                encode_events[0].record(torch.cuda.current_stream(input_ids.device))
+python/tokenspeed/runtime/multimodal/embedder.py:382:                encode_events[1].record(torch.cuda.current_stream(input_ids.device))
+python/tokenspeed/runtime/engine/pause.py:415:        - state finished -> aborted in place. Stream a terminating finish for
+python/tokenspeed/runtime/layers/logits_processor.py:979:        if hidden_states.is_cuda and torch.cuda.is_current_stream_capturing():
+python/tokenspeed/runtime/layers/logits_processor.py:1049:                if current_platform().is_amd:
+python/tokenspeed/runtime/layers/quantization/modelopt_mixed.py:503:    ``weight_scale`` names for the MoE loader). Streaming: at most one
+python/tokenspeed/runtime/layers/attention/dcp/ascend.py:64:                StreamFork,
+python/tokenspeed/runtime/layers/attention/dcp/ascend.py:68:            self.stream_fork = StreamFork(new_device_stream())
+python/tokenspeed/runtime/layers/attention/dcp/ascend.py:139:            get_is_cuda_graph_phase,
+python/tokenspeed/runtime/layers/attention/dcp/ascend.py:143:        graph_phase = get_is_cuda_graph_phase()
+python/tokenspeed/runtime/layers/attention/dcp/ascend.py:146:            main = fork.device_module.current_stream()
+python/tokenspeed/runtime/models/glm_moe_dsa_nextn.py:97:        self.alt_stream = torch.cuda.Stream()
+python/tokenspeed/runtime/models/nemotron_h_nextn.py:126:        alt_stream = torch.cuda.Stream()
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py:174:            if current_platform().is_npu
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py:219:            current_platform().is_npu
+python/tokenspeed/runtime/layers/quantization/compressed_tensors/compressed_tensors.py:238:            current_platform().is_npu
+python/tokenspeed/runtime/models/deepseek_v41_dspark.py:136:        if swa.is_cuda and swa.shape[-1] == 512:
+python/tokenspeed/runtime/models/deepseek_v41_dspark.py:172:        if q.is_cuda and q.shape[-1] == 512:
+python/tokenspeed/runtime/models/deepseek_v41_dspark.py:235:        if flat.is_cuda:
+python/tokenspeed/runtime/models/deepseek_v41_dspark.py:367:            if kv.is_cuda and head_dim == 512:
+python/tokenspeed/runtime/models/glm53_flash_nextn.py:81:        alt_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
+python/tokenspeed/runtime/models/nemotron_h.py:49:    get_is_cuda_graph_phase,
+python/tokenspeed/runtime/models/nemotron_h.py:82:from tokenspeed.runtime.utils.cuda_stream import StreamFork
+python/tokenspeed/runtime/models/nemotron_h.py:577:        alt_stream: torch.cuda.Stream | None,
+python/tokenspeed/runtime/models/nemotron_h.py:653:        self.stream_fork = StreamFork(alt_stream)
+python/tokenspeed/runtime/models/nemotron_h.py:665:            enable=hidden_states.shape[0] > 0 and get_is_cuda_graph_phase(),
+python/tokenspeed/runtime/models/nemotron_h.py:738:        alt_stream: torch.cuda.Stream | None,
+python/tokenspeed/runtime/models/nemotron_h.py:792:        alt_stream = torch.cuda.Stream()
+python/tokenspeed/runtime/pd/mooncake/pack.py:259:            self._stream = torch.cuda.Stream(device=device)
+python/tokenspeed/runtime/models/dflash.py:332:    def aux_hidden_stream(self) -> str:
+python/tokenspeed/runtime/models/dflash.py:481:            torch.cuda.current_stream().wait_event(kv_sync_event)
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:94:        self.prefetch_stream = torch.cuda.Stream(device=arena.device)
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:95:        self.write_stream = torch.cuda.Stream(device=arena.device)
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:100:        self.execution_stream: torch.cuda.Stream | None = None
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:153:        self, requests: torch.Tensor, *, num_extends: int, stream: torch.cuda.Stream
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:166:        with torch.cuda.stream(stream):
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:176:    def reset_requests(self, requests: torch.Tensor, *, stream: torch.cuda.Stream):
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:185:        stream.wait_stream(self.prefetch_stream)
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:186:        stream.wait_stream(self.write_stream)
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:187:        with torch.cuda.stream(stream):
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:201:        with torch.cuda.stream(self.execution_stream):
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:226:        with torch.cuda.stream(self.execution_stream):
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:293:        self.prefetch_stream.wait_stream(self.execution_stream)
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:294:        with torch.cuda.stream(self.prefetch_stream):
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:297:        topk.record_stream(self.prefetch_stream)
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:308:            with torch.cuda.stream(self.execution_stream):
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:322:        self.write_stream.wait_stream(self.execution_stream)
+python/tokenspeed/runtime/layers/attention/kv_cache/offload.py:323:        with torch.cuda.stream(self.write_stream):
+python/tokenspeed/runtime/models/deepseek_v41.py:150:from tokenspeed.runtime.utils.cuda_stream import StreamFork
+python/tokenspeed/runtime/models/deepseek_v41.py:169:    if x.is_cuda and x.dtype in (torch.bfloat16, torch.float16):
+python/tokenspeed/runtime/models/deepseek_v41.py:356:    if x.is_cuda:
+python/tokenspeed/runtime/models/deepseek_v41.py:368:    return norm(x, residual=None, out=None) if x.is_cuda else _norm(x, norm)
+python/tokenspeed/runtime/models/deepseek_v41.py:475:        if not x.is_cuda:
+python/tokenspeed/runtime/models/deepseek_v41.py:496:        if not x.is_cuda:
+python/tokenspeed/runtime/models/deepseek_v41.py:513:    if x.is_cuda:
+python/tokenspeed/runtime/models/deepseek_v41.py:536:    if not x.is_cuda:
+python/tokenspeed/runtime/models/deepseek_v41.py:547:    if not x.is_cuda:
+python/tokenspeed/runtime/models/deepseek_v41.py:556:    if not x.is_cuda:
+python/tokenspeed/runtime/models/deepseek_v41.py:601:                if x.is_cuda
+python/tokenspeed/runtime/models/deepseek_v41.py:709:        aux_stream: torch.cuda.Stream | None,
+python/tokenspeed/runtime/models/deepseek_v41.py:712:        self.stream_fork = StreamFork(aux_stream)
+python/tokenspeed/runtime/models/deepseek_v41.py:802:        if not self.attn_sink.is_cuda or padded == self.n_local_heads:
+python/tokenspeed/runtime/models/deepseek_v41.py:855:        if hidden_states.is_cuda:
+python/tokenspeed/runtime/models/deepseek_v41.py:862:            and hidden_states.is_cuda
+python/tokenspeed/runtime/models/deepseek_v41.py:867:        consumer = torch.cuda.current_stream() if overlap else None
+python/tokenspeed/runtime/models/deepseek_v41.py:870:                tensor.record_stream(self.stream_fork.aux_stream)
+python/tokenspeed/runtime/models/deepseek_v41.py:905:            if q.is_cuda and mode.is_decode() and self.head_dim == 512:
+python/tokenspeed/runtime/models/deepseek_v41.py:911:            if swa.is_cuda and self.head_dim == 512 and self.rotary_emb.dim == 64:
+python/tokenspeed/runtime/models/deepseek_v41.py:921:                    tensor.record_stream(consumer)
+python/tokenspeed/runtime/models/deepseek_v41.py:924:                tensor.record_stream(consumer)
+python/tokenspeed/runtime/models/deepseek_v41.py:927:                    tensor.record_stream(consumer)
+python/tokenspeed/runtime/models/deepseek_v41.py:998:        if hidden_states.is_cuda and (bias_vl is None or image_mask is None):
+python/tokenspeed/runtime/models/deepseek_v41.py:1025:        hc_stream: torch.cuda.Stream | None,
+python/tokenspeed/runtime/models/deepseek_v41.py:1034:        self.hc_stream_fork = StreamFork(hc_stream)
+python/tokenspeed/runtime/models/deepseek_v41.py:1109:            residual.is_cuda
+python/tokenspeed/runtime/models/deepseek_v41.py:1115:        consumer = torch.cuda.current_stream() if overlap else None
+python/tokenspeed/runtime/models/deepseek_v41.py:1117:            residual.record_stream(self.hc_stream_fork.aux_stream)
+python/tokenspeed/runtime/models/deepseek_v41.py:1131:                    tensor.record_stream(consumer)
+python/tokenspeed/runtime/models/deepseek_v41.py:1145:            residual.record_stream(self.hc_stream_fork.aux_stream)
+python/tokenspeed/runtime/models/deepseek_v41.py:1159:                    tensor.record_stream(consumer)
+python/tokenspeed/runtime/models/deepseek_v41.py:1346:            torch.cuda.Stream(device=device) if device.type == "cuda" else None
+python/tokenspeed/runtime/models/deepseek_v41.py:1350:            torch.cuda.Stream(device=device) if device.type == "cuda" else None
+python/tokenspeed/runtime/models/glm53_flash.py:108:from tokenspeed.runtime.utils.cuda_stream import StreamFork
+python/tokenspeed/runtime/models/glm53_flash.py:460:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/glm53_flash.py:467:        self.stream_fork = StreamFork(alt_stream)
+python/tokenspeed/runtime/models/glm53_flash.py:905:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/glm53_flash.py:1248:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/glm53_flash.py:1496:        self.alt_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
+python/tokenspeed/runtime/layers/attention/kv_cache/arena.py:549:                        torch.cuda.current_stream(self.device).synchronize()
+python/tokenspeed/runtime/models/minimax_m3.py:90:from tokenspeed.runtime.utils.cuda_stream import StreamFork
+python/tokenspeed/runtime/models/minimax_m3.py:168:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/minimax_m3.py:171:        self.stream_fork = StreamFork(alt_stream)
+python/tokenspeed/runtime/models/minimax_m3.py:680:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/minimax_m3.py:790:        self.alt_stream = torch.cuda.Stream() if torch.cuda.is_available() else None
+python/tokenspeed/runtime/models/dots3_note.py:570:        self.alt_stream = torch.cuda.Stream()
+python/tokenspeed/runtime/models/deepseek_v41_engram.py:294:        if input_ids.is_cuda:
+python/tokenspeed/runtime/models/deepseek_v41_engram.py:716:        if indices.is_cuda and not self.host_table:
+python/tokenspeed/runtime/models/deepseek_v41_engram.py:911:        if hidden_states.is_cuda:
+python/tokenspeed/runtime/layers/attention/backends/base.py:199:        self, request_slots: torch.Tensor, *, num_extends: int, stream: torch.Stream
+python/tokenspeed/runtime/layers/attention/backends/base.py:224:        self, request_slots: torch.Tensor, *, stream: torch.Stream
+python/tokenspeed/runtime/models/deepseek_v41_moe.py:51:from tokenspeed.runtime.utils.cuda_stream import StreamFork
+python/tokenspeed/runtime/models/deepseek_v41_moe.py:274:        self.stream_fork = StreamFork(None if self.use_gluon_petit else aux_stream)
+python/tokenspeed/runtime/models/glm5.py:279:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/glm5.py:1105:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/glm5.py:1273:        self.alt_stream = torch.cuda.Stream()
+python/tokenspeed/runtime/models/dflash2.py:120:    if hidden_states.is_cuda:
+python/tokenspeed/runtime/models/longcat_flash.py:100:from tokenspeed.runtime.utils.cuda_stream import StreamFork as _StreamFork
+python/tokenspeed/runtime/models/longcat_flash.py:263:        alt_stream: torch.cuda.Stream | None = None,
+python/tokenspeed/runtime/models/longcat_flash.py:277:        self.stream_fork = _StreamFork(alt_stream)
+python/tokenspeed/runtime/models/longcat_flash.py:523:        alt_stream: torch.cuda.Stream | None = None,
+=== KERNEL REFERENCES IMPORTED BY QWEN3.5 ===
+30:from tokenspeed_kernel.ops.activation.triton import sigmoid_mul
+31:from tokenspeed_kernel.platform import current_platform
+110:logger = logging.getLogger(__name__)
+113:def _is_ignored_checkpoint_param(model, name: str) -> bool:
+121:    parent, _, leaf = name.rpartition(".")
+125:        module = model.get_submodule(parent)
+128:    quant_method = getattr(module, "quant_method", None)
+129:    return leaf in getattr(quant_method, "ignored_checkpoint_params", ())
+132:def _gdn_group_unquantized(prefix, shard_names, quant_config) -> bool:
+133:    is_quantized_layer = getattr(quant_config, "is_quantized_layer", None)
+135:        quantized = {is_quantized_layer(f"{prefix}.{shard}") for shard in shard_names}
+136:        if len(quantized) > 1:
+137:            raise ValueError(
+140:        return not quantized.pop()
+142:    ignored_layers = getattr(quant_config, "ignored_layers", None) or []
+145:    targets = list(ignored_layers)
+146:    norm_targets = [t.replace("language_model.", "") for t in targets]
+149:        norm = full.replace("language_model.", "")
+151:            check_equal_or_regex_match(full, targets)
+152:            or check_equal_or_regex_match(norm, norm_targets)
+158:def _gdn_in_proj_stacked_mapping(param_names) -> list:
+159:    if any(name.endswith(".in_proj_qkvz.weight") for name in param_names):
+174:def _input_norm(
+192:        hidden_states, residual = comm_manager.input_reduce_norm(
+196:    return norm.add_norm_with_fp8(hidden_states, residual, fp8_scale)
+199:def _post_attn_norm(
+213:        hidden_states, residual = comm_manager.post_attn_reduce_norm(
+219:    return norm.add_norm_with_fp4(hidden_states, residual, fp4_scale)
+222:class Qwen3_5GatedDeltaNet(nn.Module):
+223:    def __init__(
+231:        super().__init__()
+252:        self.conv1d = ColumnParallelLinear(
+260:            prefix=add_prefix("conv1d", prefix),
+262:        self.conv1d.weight.data = self.conv1d.weight.data.unsqueeze(1)
+264:        qkvz_unquant = _gdn_group_unquantized(
+267:        ba_unquant = _gdn_group_unquantized(
+272:            self.in_proj_qkvz = MergedColumnParallelLinear(
+285:                prefix=add_prefix("in_proj_qkvz", prefix),
+287:            self.in_proj_ba = MergedColumnParallelLinear(
+298:                prefix=add_prefix("in_proj_ba", prefix),
+300:            self._bind_packed_weight_loaders(self.in_proj_qkvz)
+301:            self._bind_packed_weight_loaders(self.in_proj_ba)
+305:            self.in_proj_qkvzba = MergedColumnParallelLinear(
+320:                prefix=add_prefix("in_proj_qkvzba", prefix),
+326:            self._bind_packed_weight_loaders(self.in_proj_qkvzba)
+332:        delattr(self.conv1d.weight, "weight_loader")
+333:        set_weight_attrs(
+336:                "weight_loader": mamba_v2_sharded_weight_loader(
+349:        self.dt_bias = nn.Parameter(
+350:            torch.ones(
+355:        self.A_log = nn.Parameter(
+356:            torch.empty(
+362:        set_weight_attrs(
+363:            self.A_log, {"weight_loader": sharded_weight_loader(0, self.attn_tp_rank)}
+365:        set_weight_attrs(
+366:            self.dt_bias, {"weight_loader": sharded_weight_loader(0, self.attn_tp_rank)}
+369:        conv_weights = self.conv1d.weight.view(
+370:            self.conv1d.weight.size(0), self.conv1d.weight.size(2)
+376:        self.norm = RMSNormGated(
+381:            device=torch.get_device_module().current_device(),
+386:        self.out_proj = RowParallelLinear(
+396:            prefix=add_prefix("out_proj", prefix),
+400:    def _override_weight_loader(param, loader):
+406:        if hasattr(param, "_weight_loader"):
+411:        if hasattr(param, "weight_loader"):
+419:        set_weight_attrs(param, {"weight_loader": loader})
+421:    def _bind_packed_weight_loaders(self, module):
+424:            param = getattr(module, attr_name, None)
+427:            original_loader = getattr(param, "weight_loader", None)
+430:            wrapped_loader = self._make_packed_weight_loader(module, original_loader)
+431:            self._override_weight_loader(param, wrapped_loader)
+434:    def _get_split_sizes_for_param(module, param, loaded_shard_id):
+436:        if isinstance(param, BlockQuantScaleParameter):
+439:            block_n = 1 if getattr(param, "format_ue8m0", False) else block_n
+445:        if isinstance(param, PerTensorScaleParameter):
+453:    def _make_packed_weight_loader(cls, module, original_weight_loader):
+460:        def weight_loader(param, loaded_weight, loaded_shard_id=None):
+463:            if isinstance(loaded_shard_id, tuple):
+464:                split_sizes = cls._get_split_sizes_for_param(
+468:                if len(loaded_weight.shape) == 0:
+473:                    if any(size != 1 for size in split_sizes):
+474:                        raise ValueError(
+479:                        original_weight_loader(param, loaded_weight.reshape(1), idx)
+482:                split_dim = getattr(param, "output_dim", 0)
+483:                chunks = loaded_weight.split(split_sizes, dim=split_dim)
+484:                if len(chunks) != len(loaded_shard_id):
+485:                    raise ValueError(
+486:                        f"Chunk/shard mismatch: {len(chunks)=}, "
+487:                        f"{len(loaded_shard_id)=}, {split_sizes=}"
+489:                for idx, chunk in zip(loaded_shard_id, chunks):
+491:                    original_weight_loader(param, chunk, idx)
+494:            return original_weight_loader(param, loaded_weight, loaded_shard_id)
+498:    def fix_query_key_value_ordering(
+511:        query, key, value, z = mixed_qkvz.split([k_tp, k_tp, v_tp, v_tp], dim=-1)
+512:        b, a = mixed_ba.split([nv_tp, nv_tp], dim=-1)
+515:        value = value.reshape(value.size(0), -1, self.head_v_dim)
+516:        z = z.reshape(z.size(0), -1, self.head_v_dim)
+520:    def input_fp8_scale(self) -> torch.Tensor | None:
+523:        return proj.quant_method.static_fp8_input_scale(proj)
+525:    def _forward_input_proj(
+530:            projected_states_qkvz, _ = self.in_proj_qkvz(projection_input)
+531:            projected_states_ba, _ = self.in_proj_ba(hidden_states)
+533:        projected_all, _ = self.in_proj_qkvzba(projection_input)
+534:        projected_states_qkvz, projected_states_ba = projected_all.split(
+539:    def forward(
+547:        projected_states_qkvz, projected_states_ba = self._forward_input_proj(
+551:        if self.num_v_heads % self.num_k_heads == 0 and not getattr(
+556:            mixed_qkv, z = projected_states_qkvz.split(
+559:            b, a = projected_states_ba.split(self.num_v_heads // self.attn_tp_size, -1)
+561:            query, key, value, z, b, a = self.fix_query_key_value_ordering(
+564:            query, key, value = map(
+565:                lambda x: x.reshape(x.shape[0], -1), (query, key, value)
+567:            mixed_qkv = torch.cat((query, key, value), dim=-1)
+588:        core_attn_out = ctx.attn_backend.forward(
+600:        core_attn_out = core_attn_out.reshape(seq_len, -1)
+601:        z = z.reshape(seq_len, -1)
+602:        core_attn_out = self.norm(core_attn_out, z)
+603:        output, _ = self.out_proj(core_attn_out)
+607:class Qwen3_5LinearDecoderLayer(nn.Module):
+610:    def __init__(
+619:        super().__init__()
+624:        self.linear_attn = Qwen3_5GatedDeltaNet(
+631:            self.mlp = Qwen3_5MoeSparseMoeBlock(
+637:                prefix=add_prefix("mlp", prefix.replace(".linear_attn", "")),
+641:            self.mlp = Qwen3_5MoeMLP(
+649:                prefix=add_prefix("mlp", prefix.replace(".linear_attn", "")),
+653:            raise ValueError(f"Invalid model type: {config.model_type}")
+655:        self.input_layernorm = GemmaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+656:        self.post_attention_layernorm = GemmaRMSNorm(
+661:        self.comm_manager = CommManager(
+672:    def forward(
+680:        num_global_tokens, max_num_tokens_per_gpu = self.comm_manager.get_num_tokens(
+685:        if not ctx.forward_mode.is_idle():
+686:            hidden_states, hidden_fp8, residual = _input_norm(
+691:                self.linear_attn.input_fp8_scale(),
+693:            capture_layer_input(self.comm_manager, residual, ctx, aux_hidden_states)
+694:            hidden_states = self.comm_manager.pre_attn_comm(hidden_states, ctx)
+696:            hidden_states = self.linear_attn(
+704:            hidden_states, hidden_fp4, residual = _post_attn_norm(
+709:                self.mlp.nvfp4_global_scale(),
+714:            capture_layer_input(
+718:        hidden_states = self.forward_mlp(
+729:    def forward_mlp(
+738:        if isinstance(self.mlp, Qwen3_5MoeSparseMoeBlock):
+739:            hidden_states = self.mlp(
+743:            hidden_states = self.comm_manager.pre_mlp_comm(hidden_states, ctx)
+744:            hidden_states = self.mlp.forward_prequantized(hidden_states, hidden_fp4)
+745:            hidden_states, residual = self.comm_manager.post_mlp_fused(
+751:class Qwen3_5AttentionDecoderLayer(nn.Module):
+754:    def __init__(
+763:        super().__init__()
+772:        validate_attention_partition(
+778:        self.num_kv_heads = max(1, self.total_num_kv_heads // self.attn_tp_size)
+783:        self.max_position_embeddings = getattr(config, "max_position_embeddings", 8192)
+785:        self.rope_scaling = get_rope_parameters(config)
+787:        self.rope_theta = self.rope_scaling.get("rope_theta", 10000)
+788:        self.partial_rotary_factor = self.rope_scaling.get("partial_rotary_factor", 1.0)
+791:        self.attn_output_gate = getattr(config, "attn_output_gate", True)
+793:            logger.warning_once("using attn output gate!")
+795:        self.rotary_emb = get_rope(
+803:            dtype=torch.get_default_dtype(),
+808:            if quant_config and quant_config.get_name() == "nvfp4"
+812:        self.qkv_proj = QKVParallelLinear(
+822:            prefix=add_prefix("qkv_proj", prefix),
+825:        self.o_proj = RowParallelLinear(
+834:            prefix=add_prefix("o_proj", prefix),
+837:        self.q_norm = GemmaRMSNorm(self.head_dim, eps=config.rms_norm_eps)
+838:        self.k_norm = GemmaRMSNorm(self.head_dim, eps=config.rms_norm_eps)
+839:        self.attn = PagedAttention(
+851:            self.mlp = Qwen3_5MoeMLP(
+859:                prefix=add_prefix("mlp", prefix.replace(".self_attn", "")),
+863:            self.mlp = Qwen3_5MoeSparseMoeBlock(
+869:                prefix=add_prefix("mlp", prefix.replace(".self_attn", "")),
+873:            raise ValueError(f"Invalid model type: {config.model_type}")
+875:        self.input_layernorm = GemmaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+876:        self.post_attention_layernorm = GemmaRMSNorm(
+881:        self.comm_manager = CommManager(
+892:    def _project_qkv(
+896:        qkv, _ = self.qkv_proj(hidden_states)
+898:            q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+900:        q_gate, k, v = qkv.split([self.q_size * 2, self.kv_size, self.kv_size], dim=-1)
+901:        heads = q_gate.view(q_gate.shape[0], self.num_heads, 2, self.head_dim)
+902:        q, gate = heads.unbind(dim=2)
+905:    def _attn(
+916:        attn_output = self.attn(q, k, v, positions, ctx, **kwargs)
+918:            sigmoid_mul(attn_output, gate)
+921:    def self_attention(
+928:        q, k, v, gate = self._project_qkv(hidden_states)
+929:        attn_output = self._attn(positions, q, k, v, gate, ctx)
+930:        output, _ = self.o_proj(attn_output)
+933:    def _maybe_narrow_residual(
+941:    def forward(
+950:        num_global_tokens, max_num_tokens_per_gpu = self.comm_manager.get_num_tokens(
+955:        if not ctx.forward_mode.is_idle():
+956:            hidden_states, hidden_fp8, residual = _input_norm(
+961:                self.qkv_proj.quant_method.static_fp8_input_scale(self.qkv_proj),
+963:            capture_layer_input(self.comm_manager, residual, ctx, aux_hidden_states)
+964:            hidden_states = self.comm_manager.pre_attn_comm(hidden_states, ctx)
+966:            hidden_states = self.self_attention(
+973:            residual = self._maybe_narrow_residual(residual, ctx)
+974:            hidden_states, hidden_fp4, residual = _post_attn_norm(
+979:                self.mlp.nvfp4_global_scale(),
+984:            capture_layer_input(
+988:        hidden_states = self.forward_mlp(
+999:    def forward_mlp(
+1008:        if isinstance(self.mlp, Qwen3_5MoeSparseMoeBlock):
+1009:            hidden_states = self.mlp(
+1013:            hidden_states = self.comm_manager.pre_mlp_comm(hidden_states, ctx)
+1014:            hidden_states = self.mlp.forward_prequantized(hidden_states, hidden_fp4)
+1015:            hidden_states, residual = self.comm_manager.post_mlp_fused(
+1021:class Qwen3_5ForCausalLM(nn.Module):
+1027:    def __init__(
+1034:        super().__init__()
+1044:        alt_stream = None if current_platform().is_amd else torch.cuda.Stream()
+1047:        self.embed_tokens = VocabParallelEmbedding(
+1061:        def get_layer(idx: int, prefix: str):
+1065:                prefix = add_prefix("self_attn", prefix)
+1067:                prefix = add_prefix("linear_attn", prefix)
+1068:            return layer_class(
+1077:        self.layers = make_layers(
+1084:        self.norm = GemmaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+1088:        # set_eagle3_layers_to_capture() / set_dflash_layers_to_capture().
+1089:        self.layers_to_capture: set = set()
+1093:    def get_input_embeddings(self) -> nn.Embedding:
+1096:    @torch.no_grad()
+1097:    def forward(
+1112:            ].comm_manager.should_fuse(input_ids.shape[0]):
+1113:                hidden_states = self.embed_tokens(input_ids, reduce_results=False)
+1114:                residual = torch.zeros_like(hidden_states)
+1116:                hidden_states = self.embed_tokens(input_ids)
+1125:        for layer_idx in range(len(self.layers)):
+1128:            hidden_states, residual = layer(
+1136:                notify_target_capture(
+1146:                and input_deepstack_embeds.numel() > 0
+1157:        hidden_states, _ = layer.comm_manager.final_norm(
+1163:    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
+1172:        stacked_params_mapping += _gdn_in_proj_stacked_mapping(
+1173:            name for name, _ in self.named_parameters(remove_duplicate=False)
+1176:        loaded_params: set[str] = set()
+1177:        params_dict = dict(self.named_parameters(remove_duplicate=False))
+1186:                name = name.replace(r"model.language_model.", r"model.")
+1188:                name = name.replace(".self_attn", "")
+1197:                name = name.replace(weight_name, param_name)
+1199:                if name.endswith(".bias") and name not in params_dict:
+1204:                weight_loader = getattr(param, "weight_loader")
+1205:                weight_loader(param, loaded_weight, shard_id)
+1209:                if name.endswith(".bias") and name not in params_dict:
+1212:                    logger.warning(f"Parameter {name!s} not found in params_dict")
+1216:                weight_loader = getattr(param, "weight_loader", default_weight_loader)
+1217:                weight_loader(param, loaded_weight)
+1218:            loaded_params.add(name)
+1222:class Qwen3_5MoeModel(Qwen3_5ForCausalLM):
+1226:    def __init__(
+1233:        super().__init__(
+1237:    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
+1246:        stacked_params_mapping += _gdn_in_proj_stacked_mapping(
+1247:            name for name, _ in self.named_parameters(remove_duplicate=False)
+1263:        loaded_params: set[str] = set()
+1264:        params_dict = dict(self.named_parameters(remove_duplicate=False))
+1267:        moe_loader = build_moe_checkpoint_loader(
+1269:            expert_schema=ExpertCheckpointSchema(
+1274:            fused_schema=ExpertCheckpointSchema(
+1291:                name = name.replace(r"model.language_model.", r"model.")
+1293:                name = name.replace(".self_attn", "")
+1301:                name = name.replace(weight_name, param_name)
+1304:                if name.endswith(ignore_suffixes) and name not in params_dict:
+1312:                weight_loader(param, loaded_weight, shard_id)
+1316:                if name.endswith((".bias", "_bias")) and name not in params_dict:
+1318:                if moe_loader.matches(name):
+1319:                    mapped_name = moe_loader.load(name, loaded_weight)
+1320:                    loaded_params.add(mapped_name)
+1322:                if moe_loader.is_expert_checkpoint_weight(name):
+1326:                if name.endswith(ignore_suffixes) and name not in params_dict:
+1329:                if name in params_dict.keys():
+1331:                    weight_loader = getattr(
+1334:                    weight_loader(param, loaded_weight)
+1336:                    logger.warning(f"Parameter {name!s} not found in params_dict")
+1337:            loaded_params.add(name)
+1342:class Qwen3_5ForConditionalGeneration(BaseCausalLM):
+1345:    def __init__(
+1354:        super().__init__(
+1359:            encoder_only=getattr(config, "encoder_only", False),
+1362:        rope_config = get_rope_parameters(self.config)
+1373:            self.visual = Qwen3VLMoeVisionModel(
+1376:                norm_eps=getattr(config, "rms_norm_eps", 1e-6),
+1377:                prefix=add_prefix("model.visual", prefix),
+1382:            self.num_deepstack_embeddings = len(self.deepstack_visual_indexes)
+1385:            self.vision_embedder = VisionEmbedder(encoder_mapping=mapping.vision)
+1389:    def separate_deepstack_embeds(self, embedding: torch.Tensor):
+1392:            raise ValueError(
+1400:    def pad_input_ids(self, input_ids: list[int], mm_inputs: MultimodalInputs):
+1401:        return pad_input_tokens(input_ids, mm_inputs)
+1403:    def get_image_feature(self, items: list[MultimodalDataItem]) -> torch.Tensor:
+1407:        tokens, grid = self.pre_encode(items)
+1408:        metadata = self.visual.prepare_metadata(grid)
+1409:        encoded = self.visual.forward_blocks(tokens, metadata)
+1410:        return self.post_encode([encoded], grid)
+1412:    def get_video_feature(self, items: list[MultimodalDataItem]) -> torch.Tensor:
+1414:        tokens, grid = self.pre_encode(items)
+1415:        metadata = self.visual.prepare_metadata(grid)
+1416:        encoded = self.visual.forward_blocks(tokens, metadata)
+1417:        return self.post_encode([encoded], grid)
+1419:    def get_multimodal_encoder_specs(self) -> dict[Modality, EncoderSpec]:
+1423:            Modality.IMAGE: EncoderSpec(
+1428:            Modality.VIDEO: EncoderSpec(
+1435:    def pre_encode(
+1446:        pixel_values = torch.cat(
+1447:            [item.feature.to(device, non_blocking=True) for item in items], dim=0
+1448:        ).type(self.visual.dtype)
+1449:        grid = torch.concat(
+1451:                getattr(
+1463:        if pixel_values.dim() != 2:
+1464:            raise ValueError(f"pixel_values must be 2D, got {pixel_values.dim()}D.")
+1465:        if grid.dim() != 2:
+1466:            raise ValueError(f"grid must be 2D, got {grid.dim()}D.")
+1467:        x = self.visual.prepare_patch_embed(pixel_values, grid)
+1470:    def post_encode(
+1474:        return torch.cat(encoder_outs, dim=0)
+1476:    def _build_encoder_cudagraph_wrapper(
+1488:        adapter = VisionEncoderCudaGraphAdapter(
+1499:        return EncoderForwardStepRunner(
+1508:    def make_encoder_cudagraph_wrappers(self, mapping):
+1510:            envs.TOKENSPEED_MM_VIDEO_ENCODER_CUDA_GRAPH_MAX_SEQUENCES_PER_BATCH.get()
+1513:            max_video_metadata_sequences = max(1, max_video_metadata_sequences)
+1522:        shared = self._build_encoder_cudagraph_wrapper(
+1531:    def get_input_embeddings(self):
+1534:    def set_dflash_layers_to_capture(self, layer_ids: list[int]) -> None:
+1537:        num_layers = len(self.model.layers)
+1538:        if len(set(layer_ids)) != len(layer_ids):
+1539:            raise ValueError("DFLASH target_layer_ids must be unique.")
+1542:            raise ValueError(
+1548:        sorted_capture_layers = sorted(self.model.layers_to_capture)
+1550:            layer_idx: i for i, layer_idx in enumerate(sorted_capture_layers)
+1553:    @torch.no_grad()
+1554:    def forward(
+1561:        multimodal_context = kwargs.pop("multimodal_context", None)
+1564:            or not multimodal_context.has_extend_inputs()
+1565:            or ctx.forward_mode.is_decode_or_idle()
+1567:            return super().forward(
+1574:        input_embeds, model_kwargs = self.vision_embedder.apply(
+1576:            text_embedding=self.model.get_input_embeddings(),
+1578:            encoders=self.get_multimodal_encoder_specs(),
+1581:        hidden_states, aux_hidden_states = self.model(
+1588:        logits_metadata = LogitsMetadata.from_forward_context(ctx)
+1589:        return self.logits_processor(
+1597:    def resolve_model(
+1604:        return self.model_cls(
+1608:            prefix=add_prefix("model.language_model", prefix),
+1611:    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
+1619:        stacked_params_mapping += _gdn_in_proj_stacked_mapping(

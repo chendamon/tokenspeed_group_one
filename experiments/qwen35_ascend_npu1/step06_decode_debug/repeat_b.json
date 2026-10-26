@@ -1,0 +1,1 @@
+{"id":"cmpl-5SyGT0QCeKaE3i2eCTgxE2lL-01a16263-793d-710c-9d56-772d3e602e39","object":"text_completion","created":1792652048,"model":"qwen35-0.8b","choices":[{"text":" Paris.\nThe capital of France is","index":0,"finish_reason":"length"}],"usage":{"prompt_tokens":5,"completion_tokens":8,"total_tokens":13,"prompt_tokens_details":{"cached_tokens":0}},"system_fingerprint":"default"}

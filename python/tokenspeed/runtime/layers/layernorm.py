@@ -291,7 +291,7 @@ class GemmaRMSNorm(torch.nn.Module):
             x = x * (1.0 + self.weight.float())
             x = x.to(orig_dtype)
             return x if residual is None else (x, residual)
-        else:
+        elif _platform.is_nvidia:
             if residual is not None:
                 gemma_fused_add_rmsnorm(
                     x,
@@ -306,6 +306,12 @@ class GemmaRMSNorm(torch.nn.Module):
                 self.variance_epsilon,
             )
             return out
+        return rmsnorm(
+            x,
+            self.gemma_weight,
+            self.variance_epsilon,
+            residual=residual,
+        )
 
     def add_norm_with_fp8(
         self,
@@ -354,6 +360,14 @@ class GemmaRMSNorm(torch.nn.Module):
         torch.Tensor,
     ]:
         if _is_amd:
+            x, residual = self(x, residual)
+            return x, None, None, residual
+        if _platform.is_npu:
+            if fp8_scale is not None or fp4_scale is not None:
+                raise NotImplementedError(
+                    "Ascend GemmaRMSNorm does not support fused FP8/FP4 copies"
+                )
+            # Reuse the torch_npu fused add + RMSNorm path selected by forward().
             x, residual = self(x, residual)
             return x, None, None, residual
         # The NVFP4 linear's prequantized path returns BF16 whatever the model dtype.
