@@ -1,0 +1,10 @@
+READY 4B_tp1
+DONE 4B_tp1 L128_C1 repeat 1 output_tps 9.4 p50_s 3.393
+DONE 4B_tp1 L128_C1 repeat 2 output_tps 9.32 p50_s 3.427
+DONE 4B_tp1 L128_C4 repeat 1 output_tps 18.65 p50_s 6.864
+DONE 4B_tp1 L128_C4 repeat 2 output_tps 18.62 p50_s 6.872
+DONE 4B_tp1 L512_C1 repeat 1 output_tps 4.71 p50_s 6.785
+DONE 4B_tp1 L512_C1 repeat 2 output_tps 4.79 p50_s 6.685
+DONE 4B_tp1 L512_C4 repeat 1 output_tps 6.31 p50_s 20.273
+DONE 4B_tp1 L512_C4 repeat 2 output_tps 6.35 p50_s 20.164
+CASE_COMPLETE 4B_tp1

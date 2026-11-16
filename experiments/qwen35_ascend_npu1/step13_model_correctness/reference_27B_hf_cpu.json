@@ -1,0 +1,20 @@
+{
+  "prompt": "The capital of France is",
+  "input_ids": [
+    760,
+    6511,
+    314,
+    9338,
+    369
+  ],
+  "new_token_ids": [
+    11751,
+    13,
+    271,
+    248068
+  ],
+  "text": " Paris.\n\n<think>",
+  "dtype": "bfloat16",
+  "device": "cpu",
+  "transformers_reference": "Qwen3_5ForConditionalGeneration"
+}

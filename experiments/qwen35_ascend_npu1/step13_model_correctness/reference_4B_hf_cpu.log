@@ -1,0 +1,21 @@
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66: UserWarning: Permission mismatch: The owner of /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/lib/libop_plugin_atb.so does not match.
+  warnings.warn(f"Permission mismatch: The owner of {path} does not match.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+Loading weights:   0%|          | 0/723 [00:00<?, ?it/s]Loading weights: 100%|██████████| 723/723 [00:00<00:00, 9603.21it/s]
+model_loaded
+[transformers] Setting `pad_token_id` to `eos_token_id`:248044 for open-end generation.
+{"request": 1, "match": true, "cpu": " Paris.\nA. True\nB. False\nAnswer:\nA\n\n", "tp2": " Paris.\nA. True\nB. False\nAnswer:\nA\n\n"}
+[transformers] Setting `pad_token_id` to `eos_token_id`:248044 for open-end generation.
+{"request": 2, "match": true, "cpu": " ?\n\n5\n\n**Pair 2:**\nCompute 2 + 3", "tp2": " ?\n\n5\n\n**Pair 2:**\nCompute 2 + 3"}
+[transformers] Setting `pad_token_id` to `eos_token_id`:248044 for open-end generation.
+{"request": 3, "match": true, "cpu": " 80.\n\nThe next number is 80.\n\nThe next", "tp2": " 80.\n\nThe next number is 80.\n\nThe next"}
+[transformers] Setting `pad_token_id` to `eos_token_id`:248044 for open-end generation.
+{"request": 4, "match": true, "cpu": " Paris.\nA. True\nB. False\nAnswer:\nA\n\n", "tp2": " Paris.\nA. True\nB. False\nAnswer:\nA\n\n"}

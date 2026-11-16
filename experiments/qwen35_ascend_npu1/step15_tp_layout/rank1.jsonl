@@ -1,0 +1,120 @@
+{"rank": 1, "layer": 0, "pid": 808375, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "in_proj_qkvzba": [6176, 4096], "conv": [4096, 1, 4], "out_proj": [4096, 2048], "A_log": [16]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "_forward_input_proj", "input": [1, 4096], "output": [[1, 6144], [1, 32]]}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "qkv_proj": [5120, 4096], "out_proj": [4096, 2048]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "_project_qkv", "input": [1, 4096], "output": [[1, 8, 256], [1, 512], [1, 512], [1, 8, 256]]}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "layer", "input": [5, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "in_proj_qkvzba": [6176, 4096], "conv": [4096, 1, 4], "out_proj": [4096, 2048], "A_log": [16]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "_forward_input_proj", "input": [5, 4096], "output": [[5, 6144], [5, 32]]}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "layer", "input": [5, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "qkv_proj": [5120, 4096], "out_proj": [4096, 2048]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "_project_qkv", "input": [5, 4096], "output": [[5, 8, 256], [5, 512], [5, 512], [5, 8, 256]]}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "in_proj_qkvzba": [6176, 4096], "conv": [4096, 1, 4], "out_proj": [4096, 2048], "A_log": [16]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "_forward_input_proj", "input": [1, 4096], "output": [[1, 6144], [1, 32]]}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "qkv_proj": [5120, 4096], "out_proj": [4096, 2048]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "_project_qkv", "input": [1, 4096], "output": [[1, 8, 256], [1, 512], [1, 512], [1, 8, 256]]}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "in_proj_qkvzba": [6176, 4096], "conv": [4096, 1, 4], "out_proj": [4096, 2048], "A_log": [16]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "_forward_input_proj", "input": [1, 4096], "output": [[1, 6144], [1, 32]]}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "qkv_proj": [5120, 4096], "out_proj": [4096, 2048]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "_project_qkv", "input": [1, 4096], "output": [[1, 8, 256], [1, 512], [1, 512], [1, 8, 256]]}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 808375, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "in_proj_qkvzba": [6176, 4096], "conv": [4096, 1, 4], "out_proj": [4096, 2048], "A_log": [16]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "_forward_input_proj", "input": [1, 4096], "output": [[1, 6144], [1, 32]]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "_state_components", "input": null, "output": [[9, 4096, 3], [9, 16, 128, 128]]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "qkv_proj": [5120, 4096], "out_proj": [4096, 2048]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "_project_qkv", "input": [1, 4096], "output": [[1, 8, 256], [1, 512], [1, 512], [1, 8, 256]]}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "layer", "input": [5, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "in_proj_qkvzba": [6176, 4096], "conv": [4096, 1, 4], "out_proj": [4096, 2048], "A_log": [16]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "_forward_input_proj", "input": [5, 4096], "output": [[5, 6144], [5, 32]]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "_state_components", "input": null, "output": [[9, 4096, 3], [9, 16, 128, 128]]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "layer", "input": [5, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "qkv_proj": [5120, 4096], "out_proj": [4096, 2048]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "_project_qkv", "input": [5, 4096], "output": [[5, 8, 256], [5, 512], [5, 512], [5, 8, 256]]}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "in_proj_qkvzba": [6176, 4096], "conv": [4096, 1, 4], "out_proj": [4096, 2048], "A_log": [16]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "_forward_input_proj", "input": [1, 4096], "output": [[1, 6144], [1, 32]]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "_state_components", "input": null, "output": [[9, 4096, 3], [9, 16, 128, 128]]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "qkv_proj": [5120, 4096], "out_proj": [4096, 2048]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "_project_qkv", "input": [1, 4096], "output": [[1, 8, 256], [1, 512], [1, 512], [1, 8, 256]]}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "in_proj_qkvzba": [6176, 4096], "conv": [4096, 1, 4], "out_proj": [4096, 2048], "A_log": [16]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "_forward_input_proj", "input": [1, 4096], "output": [[1, 6144], [1, 32]]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "_state_components", "input": null, "output": [[9, 4096, 3], [9, 16, 128, 128]]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "qkv_proj": [5120, 4096], "out_proj": [4096, 2048]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "_project_qkv", "input": [1, 4096], "output": [[1, 8, 256], [1, 512], [1, 512], [1, 8, 256]]}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 809430, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": -1, "pid": 810516, "event": "embedding", "input": [1], "weight": [124160, 4096], "tp_size": 2}
+{"rank": 1, "layer": -1, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "in_proj_qkvzba": [6176, 4096], "conv": [4096, 1, 4], "out_proj": [4096, 2048], "A_log": [16]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "_forward_input_proj", "input": [1, 4096], "output": [[1, 6144], [1, 32]]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "_state_components", "input": null, "output": [[9, 4096, 3], [9, 16, 128, 128]]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "qkv_proj": [5120, 4096], "out_proj": [4096, 2048]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "_project_qkv", "input": [1, 4096], "output": [[1, 8, 256], [1, 512], [1, 512], [1, 8, 256]]}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": -2, "pid": 810516, "event": "logits", "input": [1, 4096], "weight": [124160, 4096], "tp_size": 2}
+{"rank": 1, "layer": -2, "pid": 810516, "event": "hccl_all_gather_single", "tensors": [{"shape": [2, 124160], "dtype": "torch.bfloat16", "bytes": 496640}, {"shape": [1, 124160], "dtype": "torch.bfloat16", "bytes": 248320}]}
+{"rank": 1, "layer": -1, "pid": 810516, "event": "embedding", "input": [5], "weight": [124160, 4096], "tp_size": 2}
+{"rank": 1, "layer": -1, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "layer", "input": [5, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "in_proj_qkvzba": [6176, 4096], "conv": [4096, 1, 4], "out_proj": [4096, 2048], "A_log": [16]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "_forward_input_proj", "input": [5, 4096], "output": [[5, 6144], [5, 32]]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "_state_components", "input": null, "output": [[9, 4096, 3], [9, 16, 128, 128]]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "layer", "input": [5, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "qkv_proj": [5120, 4096], "out_proj": [4096, 2048]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "_project_qkv", "input": [5, 4096], "output": [[5, 8, 256], [5, 512], [5, 512], [5, 8, 256]]}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [5, 4096], "dtype": "torch.bfloat16", "bytes": 40960}]}
+{"rank": 1, "layer": -2, "pid": 810516, "event": "logits", "input": [1, 4096], "weight": [124160, 4096], "tp_size": 2}
+{"rank": 1, "layer": -2, "pid": 810516, "event": "hccl_all_gather_single", "tensors": [{"shape": [2, 124160], "dtype": "torch.bfloat16", "bytes": 496640}, {"shape": [1, 124160], "dtype": "torch.bfloat16", "bytes": 248320}]}
+{"rank": 1, "layer": -1, "pid": 810516, "event": "embedding", "input": [1], "weight": [124160, 4096], "tp_size": 2}
+{"rank": 1, "layer": -1, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "in_proj_qkvzba": [6176, 4096], "conv": [4096, 1, 4], "out_proj": [4096, 2048], "A_log": [16]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "_forward_input_proj", "input": [1, 4096], "output": [[1, 6144], [1, 32]]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "_state_components", "input": null, "output": [[9, 4096, 3], [9, 16, 128, 128]]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "qkv_proj": [5120, 4096], "out_proj": [4096, 2048]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "_project_qkv", "input": [1, 4096], "output": [[1, 8, 256], [1, 512], [1, 512], [1, 8, 256]]}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": -2, "pid": 810516, "event": "logits", "input": [1, 4096], "weight": [124160, 4096], "tp_size": 2}
+{"rank": 1, "layer": -2, "pid": 810516, "event": "hccl_all_gather_single", "tensors": [{"shape": [2, 124160], "dtype": "torch.bfloat16", "bytes": 496640}, {"shape": [1, 124160], "dtype": "torch.bfloat16", "bytes": 248320}]}
+{"rank": 1, "layer": -1, "pid": 810516, "event": "embedding", "input": [1], "weight": [124160, 4096], "tp_size": 2}
+{"rank": 1, "layer": -1, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "in_proj_qkvzba": [6176, 4096], "conv": [4096, 1, 4], "out_proj": [4096, 2048], "A_log": [16]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "_forward_input_proj", "input": [1, 4096], "output": [[1, 6144], [1, 32]]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "_state_components", "input": null, "output": [[9, 4096, 3], [9, 16, 128, 128]]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 0, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "layer", "input": [1, 4096], "weights": {"gate_up": [12288, 4096], "down": [4096, 6144], "qkv_proj": [5120, 4096], "out_proj": [4096, 2048]}, "attn_tp": 2, "dense_tp": 2}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "_project_qkv", "input": [1, 4096], "output": [[1, 8, 256], [1, 512], [1, 512], [1, 8, 256]]}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": 3, "pid": 810516, "event": "hccl_all_reduce", "tensors": [{"shape": [1, 4096], "dtype": "torch.bfloat16", "bytes": 8192}]}
+{"rank": 1, "layer": -2, "pid": 810516, "event": "logits", "input": [1, 4096], "weight": [124160, 4096], "tp_size": 2}
+{"rank": 1, "layer": -2, "pid": 810516, "event": "hccl_all_gather_single", "tensors": [{"shape": [2, 124160], "dtype": "torch.bfloat16", "bytes": 496640}, {"shape": [1, 124160], "dtype": "torch.bfloat16", "bytes": 248320}]}

@@ -1,0 +1,4 @@
+{"model": "0.8B", "tp": 2, "request": 1, "text": " Paris.\nThe capital of France is Paris.\nThe capital of France is", "usage": {"prompt_tokens": 5, "completion_tokens": 16, "total_tokens": 21, "prompt_tokens_details": {"cached_tokens": 0}}}
+{"model": "0.8B", "tp": 2, "request": 2, "text": " 5.\nCompute 2 + 3 = 5.\nCompute", "usage": {"prompt_tokens": 7, "completion_tokens": 16, "total_tokens": 23, "prompt_tokens_details": {"cached_tokens": 0}}}
+{"model": "0.8B", "tp": 2, "request": 3, "text": " 80. What is the next number in the sequence?\n\nTo find", "usage": {"prompt_tokens": 322, "completion_tokens": 16, "total_tokens": 338, "prompt_tokens_details": {"cached_tokens": 0}}}
+{"model": "0.8B", "tp": 2, "request": 4, "text": " Paris.\nThe capital of France is Paris.\nThe capital of France is", "usage": {"prompt_tokens": 5, "completion_tokens": 16, "total_tokens": 21, "prompt_tokens_details": {"cached_tokens": 0}}}

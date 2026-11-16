@@ -1,0 +1,6 @@
+READY 27B_tp2
+DONE 27B_tp2 L128_C1 repeat 1 output_tps 4.47 p50_s 7.119
+DONE 27B_tp2 L128_C1 repeat 2 output_tps 4.5 p50_s 7.059
+DONE 27B_tp2 L512_C1 repeat 1 output_tps 2.42 p50_s 13.213
+DONE 27B_tp2 L512_C1 repeat 2 output_tps 2.4 p50_s 13.291
+CASE_COMPLETE 27B_tp2

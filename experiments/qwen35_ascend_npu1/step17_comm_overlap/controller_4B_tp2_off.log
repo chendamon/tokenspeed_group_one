@@ -1,0 +1,6 @@
+READY 4B_tp2_off
+DONE 4B_tp2_off L512_C1 repeat 1 output_tps 4.71 p50_s 6.78
+DONE 4B_tp2_off L512_C1 repeat 2 output_tps 4.73 p50_s 6.765
+DONE 4B_tp2_off L512_C4 repeat 1 output_tps 6.47 p50_s 19.775
+DONE 4B_tp2_off L512_C4 repeat 2 output_tps 6.49 p50_s 19.735
+CASE_COMPLETE 4B_tp2_off

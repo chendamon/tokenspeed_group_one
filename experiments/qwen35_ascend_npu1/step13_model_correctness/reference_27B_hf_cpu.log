@@ -1,0 +1,14 @@
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66: UserWarning: Permission mismatch: The owner of /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/lib/libop_plugin_atb.so does not match.
+  warnings.warn(f"Permission mismatch: The owner of {path} does not match.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+Loading weights:   0%|          | 0/1184 [00:00<?, ?it/s]Loading weights:  61%|██████    | 724/1184 [00:00<00:00, 7236.81it/s]Loading weights: 100%|██████████| 1184/1184 [00:00<00:00, 9986.14it/s]
+model_loaded_seconds=1.2
+{"prompt": "The capital of France is", "input_ids": [760, 6511, 314, 9338, 369], "new_token_ids": [11751, 13, 271, 248068], "text": " Paris.\n\n<think>", "dtype": "bfloat16", "device": "cpu", "transformers_reference": "Qwen3_5ForConditionalGeneration"}

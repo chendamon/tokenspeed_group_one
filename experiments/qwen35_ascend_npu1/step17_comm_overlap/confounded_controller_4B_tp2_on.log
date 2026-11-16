@@ -1,0 +1,6 @@
+READY 4B_tp2_on
+DONE 4B_tp2_on L512_C1 repeat 1 output_tps 6.95 p50_s 3.691
+DONE 4B_tp2_on L512_C1 repeat 2 output_tps 8.61 p50_s 3.703
+DONE 4B_tp2_on L512_C4 repeat 1 output_tps 18.99 p50_s 6.741
+DONE 4B_tp2_on L512_C4 repeat 2 output_tps 19.11 p50_s 6.696
+CASE_COMPLETE 4B_tp2_on

@@ -22,14 +22,23 @@
 set -euo pipefail
 
 repo_root=/home/u2601112013/tokenspeed_group_one
-ts_bin=/home/u2601112013/tokenspeed/.venv/bin/ts
+venv_root="$repo_root/.venv"
+ts_bin="$venv_root/bin/ts"
 model_path=/home/u2601112013/models/Qwen3.5-0.8B
 port="${1:?usage: run_server.sh PORT}"
 
 cd "$repo_root"
+if [[ ! -x "$ts_bin" ]]; then
+  echo "TokenSpeed entrypoint not found: $ts_bin" >&2
+  echo "Rebuild the project-local virtual environment before starting the service." >&2
+  exit 1
+fi
 set +u
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 set -u
+
+export VIRTUAL_ENV="$venv_root"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # NPU ID 1 / Chip ID 0 maps to physical device 2. It is exposed as logical npu:0.
 export ASCEND_RT_VISIBLE_DEVICES=2

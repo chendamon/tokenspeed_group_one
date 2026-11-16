@@ -1,0 +1,17 @@
+Traceback (most recent call last):
+  File "/home/u2601112013/tokenspeed_group_one/.venv/bin/ts", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/u2601112013/tokenspeed_group_one/python/tokenspeed/cli/__main__.py", line 113, in main
+    args.func(args, raw)
+  File "/home/u2601112013/tokenspeed_group_one/python/tokenspeed/cli/__main__.py", line 28, in _serve
+    from tokenspeed.cli.serve_smg import run_smg_from_args
+  File "/home/u2601112013/tokenspeed_group_one/python/tokenspeed/cli/serve_smg.py", line 46, in <module>
+    from tokenspeed_kernel.platform import current_platform
+  File "/home/u2601112013/tokenspeed_group_one/tokenspeed-kernel/python/tokenspeed_kernel/__init__.py", line 21, in <module>
+    from tokenspeed_kernel.profiling import (
+  File "/home/u2601112013/tokenspeed_group_one/tokenspeed-kernel/python/tokenspeed_kernel/profiling.py", line 35, in <module>
+    from tokenspeed_kernel._triton import proton
+  File "/home/u2601112013/tokenspeed_group_one/tokenspeed-kernel/python/tokenspeed_kernel/_triton.py", line 71, in <module>
+    import tokenspeed_triton as triton
+ModuleNotFoundError: No module named 'tokenspeed_triton'

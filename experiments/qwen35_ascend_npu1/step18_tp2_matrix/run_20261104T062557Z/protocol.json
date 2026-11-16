@@ -1,0 +1,28 @@
+{
+  "models": [
+    "0.8B",
+    "4B",
+    "9B",
+    "27B"
+  ],
+  "tp": 2,
+  "physical_ids": [
+    2,
+    3
+  ],
+  "lengths": [
+    128,
+    512
+  ],
+  "concurrency": [
+    1,
+    2
+  ],
+  "output": 64,
+  "warmup_rounds": 2,
+  "measurement_rounds": 5,
+  "port": 38274,
+  "shared_device": true,
+  "timing": "HTTP SSE first/last nonempty content arrival; TPOT denominator 63; raw events retained",
+  "root": "/home/u2601112013/tokenspeed_group_one"
+}

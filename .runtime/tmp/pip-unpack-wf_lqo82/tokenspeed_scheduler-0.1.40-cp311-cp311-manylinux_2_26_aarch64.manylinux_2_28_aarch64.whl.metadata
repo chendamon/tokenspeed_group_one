@@ -1,0 +1,9 @@
+Metadata-Version: 2.2
+Name: tokenspeed-scheduler
+Version: 0.1.40
+Summary: TokenSpeed C++ scheduler with Python bindings
+Requires-Python: >=3.10
+Requires-Dist: numpy
+Provides-Extra: test
+Requires-Dist: pytest>=9; extra == "test"
+

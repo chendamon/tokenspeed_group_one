@@ -1,0 +1,248 @@
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66: UserWarning: Permission mismatch: The owner of /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/lib/libop_plugin_atb.so does not match.
+  warnings.warn(f"Permission mismatch: The owner of {path} does not match.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+READY 0.8B
+MODEL_FAILED 0.8B <HTTPError 400: 'Bad Request'>
+Traceback (most recent call last):
+  File "/home/u2601112013/tokenspeed_group_one/experiments/qwen35_ascend_npu1/step18_tp2_matrix/benchmark.py", line 105, in <module>
+    rows,wall,overlap=batch(model,prompt,c)
+                      ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/u2601112013/tokenspeed_group_one/experiments/qwen35_ascend_npu1/step18_tp2_matrix/benchmark.py", line 63, in batch
+    rows=list(pool.map(lambda _:request(model,prompt,barrier),range(c)))
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/concurrent/futures/_base.py", line 619, in result_iterator
+    yield _result_or_cancel(fs.pop())
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/concurrent/futures/_base.py", line 317, in _result_or_cancel
+    return fut.result(timeout)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/concurrent/futures/_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/opt/miniconda3/envs/aics/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/u2601112013/tokenspeed_group_one/experiments/qwen35_ascend_npu1/step18_tp2_matrix/benchmark.py", line 63, in <lambda>
+    rows=list(pool.map(lambda _:request(model,prompt,barrier),range(c)))
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/u2601112013/tokenspeed_group_one/experiments/qwen35_ascend_npu1/step18_tp2_matrix/benchmark.py", line 41, in request
+    with urllib.request.urlopen(req,timeout=300) as res:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/urllib/request.py", line 525, in open
+    response = meth(req, response)
+               ^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/urllib/request.py", line 634, in http_response
+    response = self.parent.error(
+               ^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/urllib/request.py", line 563, in error
+    return self._call_chain(*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/urllib/request.py", line 643, in http_error_default
+    raise HTTPError(req.full_url, code, msg, hdrs, fp)
+urllib.error.HTTPError: HTTP Error 400: Bad Request
+[ERROR] 2026-11-04-06:23:43 (PID:3864320, Device:-1, RankID:-1) ERR99999 UNKNOWN applicaiton exception
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66: UserWarning: Permission mismatch: The owner of /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/lib/libop_plugin_atb.so does not match.
+  warnings.warn(f"Permission mismatch: The owner of {path} does not match.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+READY 0.8B
+HTTP_ERROR_BODY {"error":{"message":"Invalid JSON data: Failed to deserialize the JSON body into the target type: prompt: data did not match any variant of untagged enum StringOrArray at line 1 column 931","type":"invalid_request_error","param":"prompt","code":"invalid_type"}}
+MODEL_FAILED 0.8B <HTTPError 400: 'Bad Request'>
+Traceback (most recent call last):
+  File "/home/u2601112013/tokenspeed_group_one/experiments/qwen35_ascend_npu1/step18_tp2_matrix/benchmark.py", line 108, in <module>
+    rows,wall,overlap=batch(model,prompt,c)
+                      ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/u2601112013/tokenspeed_group_one/experiments/qwen35_ascend_npu1/step18_tp2_matrix/benchmark.py", line 63, in batch
+    try: rows=list(pool.map(lambda _:request(model,prompt,barrier),range(c)))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/concurrent/futures/_base.py", line 619, in result_iterator
+    yield _result_or_cancel(fs.pop())
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/concurrent/futures/_base.py", line 317, in _result_or_cancel
+    return fut.result(timeout)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/concurrent/futures/_base.py", line 456, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/opt/miniconda3/envs/aics/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/u2601112013/tokenspeed_group_one/experiments/qwen35_ascend_npu1/step18_tp2_matrix/benchmark.py", line 63, in <lambda>
+    try: rows=list(pool.map(lambda _:request(model,prompt,barrier),range(c)))
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/u2601112013/tokenspeed_group_one/experiments/qwen35_ascend_npu1/step18_tp2_matrix/benchmark.py", line 41, in request
+    with urllib.request.urlopen(req,timeout=300) as res:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/urllib/request.py", line 525, in open
+    response = meth(req, response)
+               ^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/urllib/request.py", line 634, in http_response
+    response = self.parent.error(
+               ^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/urllib/request.py", line 563, in error
+    return self._call_chain(*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/opt/miniconda3/envs/aics/lib/python3.11/urllib/request.py", line 643, in http_error_default
+    raise HTTPError(req.full_url, code, msg, hdrs, fp)
+urllib.error.HTTPError: HTTP Error 400: Bad Request
+[ERROR] 2026-11-04-06:26:49 (PID:3866169, Device:-1, RankID:-1) ERR99999 UNKNOWN applicaiton exception
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66: UserWarning: Permission mismatch: The owner of /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/lib/libop_plugin_atb.so does not match.
+  warnings.warn(f"Permission mismatch: The owner of {path} does not match.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+READY 0.8B
+ROUND 0.8B_L128_C1_warmup0 seconds 9.65 overlap True
+ROUND 0.8B_L128_C1_warmup1 seconds 4.2 overlap True
+ROUND 0.8B_L128_C1_measure2 seconds 4.23 overlap True
+ROUND 0.8B_L128_C1_measure3 seconds 4.07 overlap True
+ROUND 0.8B_L128_C1_measure4 seconds 4.06 overlap True
+ROUND 0.8B_L128_C1_measure5 seconds 4.0 overlap True
+ROUND 0.8B_L128_C1_measure6 seconds 4.1 overlap True
+ROUND 0.8B_L128_C2_warmup0 seconds 4.26 overlap True
+ROUND 0.8B_L128_C2_warmup1 seconds 4.2 overlap True
+ROUND 0.8B_L128_C2_measure2 seconds 4.14 overlap True
+ROUND 0.8B_L128_C2_measure3 seconds 4.1 overlap True
+ROUND 0.8B_L128_C2_measure4 seconds 4.2 overlap True
+ROUND 0.8B_L128_C2_measure5 seconds 7.94 overlap True
+ROUND 0.8B_L128_C2_measure6 seconds 4.14 overlap True
+ROUND 0.8B_L512_C1_warmup0 seconds 7.89 overlap True
+ROUND 0.8B_L512_C1_warmup1 seconds 4.19 overlap True
+ROUND 0.8B_L512_C1_measure2 seconds 4.14 overlap True
+ROUND 0.8B_L512_C1_measure3 seconds 4.22 overlap True
+ROUND 0.8B_L512_C1_measure4 seconds 4.2 overlap True
+ROUND 0.8B_L512_C1_measure5 seconds 4.15 overlap True
+ROUND 0.8B_L512_C1_measure6 seconds 4.15 overlap True
+ROUND 0.8B_L512_C2_warmup0 seconds 4.6 overlap True
+ROUND 0.8B_L512_C2_warmup1 seconds 4.62 overlap True
+ROUND 0.8B_L512_C2_measure2 seconds 8.23 overlap True
+ROUND 0.8B_L512_C2_measure3 seconds 4.56 overlap True
+ROUND 0.8B_L512_C2_measure4 seconds 4.55 overlap True
+ROUND 0.8B_L512_C2_measure5 seconds 4.43 overlap True
+ROUND 0.8B_L512_C2_measure6 seconds 4.54 overlap True
+MODEL_COMPLETE 0.8B
+READY 4B
+ROUND 4B_L128_C1_warmup0 seconds 6.62 overlap True
+ROUND 4B_L128_C1_warmup1 seconds 6.97 overlap True
+ROUND 4B_L128_C1_measure2 seconds 6.76 overlap True
+ROUND 4B_L128_C1_measure3 seconds 6.7 overlap True
+ROUND 4B_L128_C1_measure4 seconds 6.89 overlap True
+ROUND 4B_L128_C1_measure5 seconds 7.08 overlap True
+ROUND 4B_L128_C1_measure6 seconds 6.82 overlap True
+ROUND 4B_L128_C2_warmup0 seconds 8.21 overlap True
+ROUND 4B_L128_C2_warmup1 seconds 7.83 overlap True
+ROUND 4B_L128_C2_measure2 seconds 7.74 overlap True
+ROUND 4B_L128_C2_measure3 seconds 7.96 overlap True
+ROUND 4B_L128_C2_measure4 seconds 7.87 overlap True
+ROUND 4B_L128_C2_measure5 seconds 8.13 overlap True
+ROUND 4B_L128_C2_measure6 seconds 8.39 overlap True
+ROUND 4B_L512_C1_warmup0 seconds 10.78 overlap True
+ROUND 4B_L512_C1_warmup1 seconds 10.34 overlap True
+ROUND 4B_L512_C1_measure2 seconds 10.14 overlap True
+ROUND 4B_L512_C1_measure3 seconds 10.62 overlap True
+ROUND 4B_L512_C1_measure4 seconds 10.44 overlap True
+ROUND 4B_L512_C1_measure5 seconds 10.45 overlap True
+ROUND 4B_L512_C1_measure6 seconds 10.06 overlap True
+ROUND 4B_L512_C2_warmup0 seconds 15.14 overlap True
+ROUND 4B_L512_C2_warmup1 seconds 15.82 overlap True
+ROUND 4B_L512_C2_measure2 seconds 15.37 overlap True
+ROUND 4B_L512_C2_measure3 seconds 16.06 overlap True
+ROUND 4B_L512_C2_measure4 seconds 14.32 overlap True
+ROUND 4B_L512_C2_measure5 seconds 13.68 overlap True
+ROUND 4B_L512_C2_measure6 seconds 15.45 overlap True
+MODEL_COMPLETE 4B
+READY 9B
+ROUND 9B_L128_C1_warmup0 seconds 6.81 overlap True
+ROUND 9B_L128_C1_warmup1 seconds 6.93 overlap True
+ROUND 9B_L128_C1_measure2 seconds 6.8 overlap True
+ROUND 9B_L128_C1_measure3 seconds 6.83 overlap True
+ROUND 9B_L128_C1_measure4 seconds 6.91 overlap True
+ROUND 9B_L128_C1_measure5 seconds 6.58 overlap True
+ROUND 9B_L128_C1_measure6 seconds 6.29 overlap True
+ROUND 9B_L128_C2_warmup0 seconds 7.58 overlap True
+ROUND 9B_L128_C2_warmup1 seconds 7.46 overlap True
+ROUND 9B_L128_C2_measure2 seconds 7.51 overlap True
+ROUND 9B_L128_C2_measure3 seconds 7.35 overlap True
+ROUND 9B_L128_C2_measure4 seconds 7.43 overlap True
+ROUND 9B_L128_C2_measure5 seconds 7.42 overlap True
+ROUND 9B_L128_C2_measure6 seconds 7.38 overlap True
+ROUND 9B_L512_C1_warmup0 seconds 9.48 overlap True
+ROUND 9B_L512_C1_warmup1 seconds 9.32 overlap True
+ROUND 9B_L512_C1_measure2 seconds 9.41 overlap True
+ROUND 9B_L512_C1_measure3 seconds 9.27 overlap True
+ROUND 9B_L512_C1_measure4 seconds 9.37 overlap True
+ROUND 9B_L512_C1_measure5 seconds 9.24 overlap True
+ROUND 9B_L512_C1_measure6 seconds 9.14 overlap True
+ROUND 9B_L512_C2_warmup0 seconds 13.57 overlap True
+ROUND 9B_L512_C2_warmup1 seconds 13.82 overlap True
+ROUND 9B_L512_C2_measure2 seconds 13.48 overlap True
+ROUND 9B_L512_C2_measure3 seconds 13.73 overlap True
+ROUND 9B_L512_C2_measure4 seconds 13.6 overlap True
+ROUND 9B_L512_C2_measure5 seconds 13.65 overlap True
+ROUND 9B_L512_C2_measure6 seconds 13.55 overlap True
+MODEL_COMPLETE 9B
+READY 27B
+ROUND 27B_L128_C1_warmup0 seconds 13.34 overlap True
+ROUND 27B_L128_C1_warmup1 seconds 13.12 overlap True
+ROUND 27B_L128_C1_measure2 seconds 13.12 overlap True
+ROUND 27B_L128_C1_measure3 seconds 13.44 overlap True
+ROUND 27B_L128_C1_measure4 seconds 13.34 overlap True
+ROUND 27B_L128_C1_measure5 seconds 13.11 overlap True
+ROUND 27B_L128_C1_measure6 seconds 13.15 overlap True
+ROUND 27B_L128_C2_warmup0 seconds 15.74 overlap True
+ROUND 27B_L128_C2_warmup1 seconds 15.25 overlap True
+ROUND 27B_L128_C2_measure2 seconds 18.99 overlap True
+ROUND 27B_L128_C2_measure3 seconds 14.25 overlap True
+ROUND 27B_L128_C2_measure4 seconds 14.75 overlap True
+ROUND 27B_L128_C2_measure5 seconds 15.91 overlap True
+ROUND 27B_L128_C2_measure6 seconds 15.55 overlap True
+ROUND 27B_L512_C1_warmup0 seconds 20.2 overlap True
+ROUND 27B_L512_C1_warmup1 seconds 20.47 overlap True
+ROUND 27B_L512_C1_measure2 seconds 20.34 overlap True
+ROUND 27B_L512_C1_measure3 seconds 18.94 overlap True
+ROUND 27B_L512_C1_measure4 seconds 20.54 overlap True
+ROUND 27B_L512_C1_measure5 seconds 19.81 overlap True
+ROUND 27B_L512_C1_measure6 seconds 19.23 overlap True
+ROUND 27B_L512_C2_warmup0 seconds 27.13 overlap True
+ROUND 27B_L512_C2_warmup1 seconds 33.87 overlap True
+ROUND 27B_L512_C2_measure2 seconds 28.42 overlap True
+ROUND 27B_L512_C2_measure3 seconds 27.57 overlap True
+ROUND 27B_L512_C2_measure4 seconds 27.39 overlap True
+ROUND 27B_L512_C2_measure5 seconds 27.31 overlap True
+ROUND 27B_L512_C2_measure6 seconds 27.09 overlap True
+MODEL_COMPLETE 27B
+ALL_COMPLETE /home/u2601112013/tokenspeed_group_one/experiments/qwen35_ascend_npu1/step18_tp2_matrix/run_20261104T062726Z

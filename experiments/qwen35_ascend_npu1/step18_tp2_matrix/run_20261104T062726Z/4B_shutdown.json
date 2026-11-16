@@ -1,0 +1,72 @@
+{
+  "returncode": 0,
+  "after": {
+    "time": 1793774173.4465759,
+    "phase": "4B_shutdown",
+    "devices": {
+      "0": {
+        "physical_id": 2,
+        "aicore": 0,
+        "used_mb": 15865,
+        "total_mb": 65536,
+        "processes": [
+          {
+            "pid": 2470393,
+            "name": "tokenspeedsch",
+            "memory_mb": 12402,
+            "owned": false,
+            "ppid": 2470159,
+            "uid": 51294,
+            "args": "tokenspeed::scheduler_tp0"
+          },
+          {
+            "pid": 2470394,
+            "name": "tokenspeedsch",
+            "memory_mb": 112,
+            "owned": false,
+            "ppid": 2470159,
+            "uid": 51294,
+            "args": "tokenspeed::scheduler_tp1"
+          },
+          {
+            "pid": 2470159,
+            "name": "python",
+            "memory_mb": 112,
+            "owned": false,
+            "ppid": 2470054,
+            "uid": 51294,
+            "args": "/home/u2601213438/workspace/npu-qwen35/.venv/bin/python -m smg_grpc_servicer.tokenspeed --host 127.0.0.1 --port 58501 --model /home/u2601213438/workspace/models/Qwen3.5-9B --served-model-name qwen35-0.8b --device npu --dtype bfloat16 --kv-cache-dtype auto --attention-backend mha --sampling-backend greedy --disable-prefill-graph --disable-pdl --max-model-len 4096 --max-num-seqs 8 --max-total-tokens 65536 --chunked-prefill-size 4096 --prefix-granularity 128 --max-cudagraph-capture-size 8 --cudagraph-capture-sizes 1 2 4 8 --enable-state-checkpoint-in-forward --disable-autotune --tensor-parallel-size 2 --rl-control-port 41187"
+          },
+          {
+            "pid": 2470054,
+            "name": "ts-serve",
+            "memory_mb": 112,
+            "owned": false,
+            "ppid": 1,
+            "uid": 51294,
+            "args": "ts-serve"
+          }
+        ],
+        "own_mb": 0
+      },
+      "1": {
+        "physical_id": 3,
+        "aicore": 0,
+        "used_mb": 15267,
+        "total_mb": 65536,
+        "processes": [
+          {
+            "pid": 2470394,
+            "name": "tokenspeedsch",
+            "memory_mb": 12411,
+            "owned": false,
+            "ppid": 2470159,
+            "uid": 51294,
+            "args": "tokenspeed::scheduler_tp1"
+          }
+        ],
+        "own_mb": 0
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+START 0.8B_tp2 free_hbm_mb={2: 49672, 3: 50271}
+PASS 0.8B_tp2 request_rc=0
+START 0.8B_tp1 free_hbm_mb={2: 49669, 3: 50268}
+PASS 0.8B_tp1 request_rc=0
+START 9B_tp2 free_hbm_mb={2: 49670, 3: 50268}
+PASS 9B_tp2 request_rc=0
+START 9B_tp1 free_hbm_mb={2: 49669, 3: 50269}
+FAIL 9B_tp1 request_rc=1
+START 27B_tp2 free_hbm_mb={2: 49670, 3: 50269}
+PASS 27B_tp2 request_rc=0
+CASES_FINISHED

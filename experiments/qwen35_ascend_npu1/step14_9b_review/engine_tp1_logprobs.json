@@ -1,0 +1,191 @@
+[
+  {
+    "case": 2,
+    "teacher_forced_prefix_ids": [
+      907,
+      271,
+      17,
+      478,
+      220,
+      18,
+      283,
+      220,
+      20
+    ],
+    "prompt_length": 7,
+    "result": {
+      "text": "\n\n",
+      "output_ids": [
+        271
+      ],
+      "meta_info": {
+        "id": "55b098d3f1e2460db4eefd10297b4947",
+        "finish_reason": {
+          "type": "length",
+          "length": 1
+        },
+        "prompt_tokens": 16,
+        "weight_version": "default",
+        "input_token_logprobs": [
+          [
+            null,
+            20,
+            null
+          ]
+        ],
+        "output_token_logprobs": [
+          [
+            -0.6759464144706726,
+            271,
+            null
+          ]
+        ],
+        "input_top_logprobs": [
+          null
+        ],
+        "output_top_logprobs": [
+          [
+            [
+              -0.6759464144706726,
+              271,
+              null
+            ],
+            [
+              -0.8009464144706726,
+              13,
+              null
+            ],
+            [
+              -4.050946235656738,
+              248044,
+              null
+            ],
+            [
+              -4.800946235656738,
+              11,
+              null
+            ],
+            [
+              -5.050946235656738,
+              318,
+              null
+            ],
+            [
+              -5.675946235656738,
+              1358,
+              null
+            ],
+            [
+              -6.300946235656738,
+              1521,
+              null
+            ],
+            [
+              -6.738446235656738,
+              198,
+              null
+            ]
+          ]
+        ],
+        "completion_tokens": 1,
+        "cached_tokens": 0,
+        "e2e_latency": 1.3842010498046875
+      },
+      "output_extra_info": {
+        "decode_prefix_len": 0
+      }
+    }
+  },
+  {
+    "case": 3,
+    "teacher_forced_prefix_ids": [
+      220,
+      23,
+      15,
+      13
+    ],
+    "prompt_length": 322,
+    "result": {
+      "text": " What",
+      "output_ids": [
+        3437
+      ],
+      "meta_info": {
+        "id": "53ae66f776314182a9e21318eb4f8b57",
+        "finish_reason": {
+          "type": "length",
+          "length": 1
+        },
+        "prompt_tokens": 326,
+        "weight_version": "default",
+        "input_token_logprobs": [
+          [
+            null,
+            13,
+            null
+          ]
+        ],
+        "output_token_logprobs": [
+          [
+            -1.6091536283493042,
+            3437,
+            null
+          ]
+        ],
+        "input_top_logprobs": [
+          null
+        ],
+        "output_top_logprobs": [
+          [
+            [
+              -1.6091536283493042,
+              3437,
+              null
+            ],
+            [
+              -1.8591536283493042,
+              198,
+              null
+            ],
+            [
+              -1.8591536283493042,
+              271,
+              null
+            ],
+            [
+              -2.9841537475585938,
+              2500,
+              null
+            ],
+            [
+              -3.1091537475585938,
+              561,
+              null
+            ],
+            [
+              -3.1091537475585938,
+              15451,
+              null
+            ],
+            [
+              -3.6091537475585938,
+              1061,
+              null
+            ],
+            [
+              -3.6091537475585938,
+              2091,
+              null
+            ]
+          ]
+        ],
+        "completion_tokens": 1,
+        "cached_tokens": 0,
+        "e2e_latency": 3.109151840209961
+      },
+      "output_extra_info": {
+        "decode_prefix_len": 0
+      }
+    }
+  }
+]

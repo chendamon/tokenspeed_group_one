@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/u2601112013/tokenspeed_group_one/experiments/qwen35_ascend_npu1/step16_tp_performance/benchmark.py", line 107, in <module>
+    if not ready: raise RuntimeError(f'Server not ready; exit={proc.poll()}')
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Server not ready; exit=1

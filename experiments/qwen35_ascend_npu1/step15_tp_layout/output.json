@@ -1,0 +1,23 @@
+{
+  "text": " Paris.\n",
+  "output_ids": [
+    11751,
+    13,
+    198
+  ],
+  "meta_info": {
+    "id": "217d98f8d2c84a6683cb99b7bd88456d",
+    "finish_reason": {
+      "type": "length",
+      "length": 3
+    },
+    "prompt_tokens": 5,
+    "weight_version": "default",
+    "completion_tokens": 3,
+    "cached_tokens": 0,
+    "e2e_latency": 1.5703909397125244
+  },
+  "output_extra_info": {
+    "decode_prefix_len": 0
+  }
+}

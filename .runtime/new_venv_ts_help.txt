@@ -1,0 +1,15 @@
+usage: tokenspeed [-h] {serve,env,merge-traces,version} ...
+
+TokenSpeed is a speed-of-light LLM inference engine.
+
+positional arguments:
+  {serve,env,merge-traces,version}
+    serve               Launch the TokenSpeed inference server.
+    env                 Check environment configurations and dependency
+                        versions.
+    merge-traces        Merge one or more Proton/VizTracer trace pairs onto a
+                        shared timeline.
+    version             Print the TokenSpeed version.
+
+options:
+  -h, --help            show this help message and exit

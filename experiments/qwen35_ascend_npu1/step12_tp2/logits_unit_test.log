@@ -1,0 +1,186 @@
+..........F.....s..F..F..............                                    [100%]
+=================================== FAILURES ===================================
+___ test_tp_logits_custom_collectives_skip_host_spread_group_without_fabric ____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffced629a10>
+
+    def test_tp_logits_custom_collectives_skip_host_spread_group_without_fabric(
+        monkeypatch,
+    ):
+        _set_fabric(monkeypatch, False)
+        processor = LogitsProcessor(
+            config=SimpleNamespace(model_type="test", vocab_size=64),
+            tp_rank=0,
+            tp_size=8,
+            tp_group=tuple(range(8)),
+            dp_lm_head_tp=False,
+        )
+        lm_head = SimpleNamespace(weight=torch.ones((8, 2), dtype=torch.float32))
+    
+        monkeypatch.setattr(
+            logits_processor_module,
+            "create_state",
+            lambda **kwargs: pytest.fail("a group without fabric must not gather"),
+        )
+        # Distributed argmax is no longer topology-gated: cross-node groups probe
+        # for NVLS instead. This shard is below the kernel's vocab floor, so the
+        # kernel state is rejected before any collective work and the argmax
+        # falls back to the portable all-reduce of packed keys.
+        monkeypatch.setattr(
+            logits_processor_module,
+            "try_create_dist_argmax_state",
+            lambda **kwargs: pytest.fail(
+                "a shard below the vocab floor must not reach the constructor"
+            ),
+        )
+    
+        assert processor._init_all_gather_state(lm_head) is None
+>       assert isinstance(processor._init_dist_argmax_state(lm_head), VocabParallelArgmax)
+
+test/runtime/test_logits_processor.py:255: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/tokenspeed/runtime/layers/logits_processor.py:615: in _init_dist_argmax_state
+    if state is None and not torch.cuda.is_current_stream_capturing():
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch/cuda/graphs.py:52: in is_current_stream_capturing
+    return _cuda_isCurrentStreamCapturing()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+obj = <class 'torch._utils._cuda_isCurrentStreamCapturing'>, args = ()
+kwargs = {}, class_name = '_cuda_isCurrentStreamCapturing'
+
+    def err_fn(obj, *args, **kwargs):
+        if is_init:
+            class_name = obj.__class__.__name__
+        else:
+            class_name = obj.__name__
+>       raise RuntimeError(f"Tried to instantiate dummy base class {class_name}")
+E       RuntimeError: Tried to instantiate dummy base class _cuda_isCurrentStreamCapturing
+
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch/_utils.py:996: RuntimeError
+_____________ test_get_logits_skips_gather_when_dist_argmax_active _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffde2262cd0>
+
+    def test_get_logits_skips_gather_when_dist_argmax_active(monkeypatch):
+        """do_argmax + active state keeps logits sharded (no all-gather)."""
+        proc = LogitsProcessor(
+            config=SimpleNamespace(
+                model_type="test", vocab_size=8, final_logit_softcapping=None
+            ),
+            tp_rank=0,
+            tp_size=2,
+            tp_group=(0, 1),
+            do_argmax=True,
+            dp_lm_head_tp=False,
+        )
+        monkeypatch.setattr(proc, "_init_dist_argmax_state", lambda lm_head: object())
+        monkeypatch.setattr(
+            logits_processor_module,
+            "all_gather_inner",
+            lambda *a, **k: pytest.fail("gather must be skipped on the fused path"),
+        )
+    
+        hidden = torch.randn(4, 2, dtype=torch.float32)
+        lm_head = SimpleNamespace(weight=torch.randn(4, 2, dtype=torch.float32))  # 4*2 == 8
+        md = LogitsMetadata(forward_mode=ForwardMode.DECODE, query_shard=None)
+>       out = proc._get_logits(hidden, lm_head, md, require_full_vocab=False)
+
+test/runtime/test_logits_processor.py:541: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/tokenspeed/runtime/layers/logits_processor.py:1079: in _get_logits
+    and not torch.cuda.is_current_stream_capturing()
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch/cuda/graphs.py:52: in is_current_stream_capturing
+    return _cuda_isCurrentStreamCapturing()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+obj = <class 'torch._utils._cuda_isCurrentStreamCapturing'>, args = ()
+kwargs = {}, class_name = '_cuda_isCurrentStreamCapturing'
+
+    def err_fn(obj, *args, **kwargs):
+        if is_init:
+            class_name = obj.__class__.__name__
+        else:
+            class_name = obj.__name__
+>       raise RuntimeError(f"Tried to instantiate dummy base class {class_name}")
+E       RuntimeError: Tried to instantiate dummy base class _cuda_isCurrentStreamCapturing
+
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch/_utils.py:996: RuntimeError
+________________ test_get_logits_softcap_disables_fused_argmax _________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xfffde21a5890>
+
+    def test_get_logits_softcap_disables_fused_argmax(monkeypatch):
+        """final_logit_softcapping must disable the fused early-return so the
+        softcap is applied to full-vocab logits (then a plain argmax runs)."""
+        proc = LogitsProcessor(
+            config=SimpleNamespace(
+                model_type="test", vocab_size=8, final_logit_softcapping=30.0
+            ),
+            tp_rank=0,
+            tp_size=2,
+            tp_group=(0, 1),
+            do_argmax=True,
+            dp_lm_head_tp=False,
+        )
+        # Fused state is otherwise eligible; softcap must still force the gather.
+        monkeypatch.setattr(proc, "_init_dist_argmax_state", lambda lm_head: object())
+        monkeypatch.setattr(proc, "_init_all_gather_state", lambda lm_head: object())
+        called = {}
+    
+        def fake_ag(state, logits, **kw):
+            called["ag"] = True
+            return logits.repeat(1, proc.tp_size)  # [bs, vocab/tp] -> [bs, vocab]
+    
+        monkeypatch.setattr(logits_processor_module, "all_gather_inner", fake_ag)
+        monkeypatch.setattr(
+            logits_processor_module, "fused_softcap_generic", lambda *a, **k: None
+        )
+    
+        hidden = torch.randn(4, 2, dtype=torch.bfloat16)
+        lm_head = SimpleNamespace(
+            weight=torch.randn(4, 2, dtype=torch.bfloat16)
+        )  # 4*2 == 8
+        md = LogitsMetadata(forward_mode=ForwardMode.DECODE, query_shard=None)
+>       out = proc._get_logits(hidden, lm_head, md, require_full_vocab=False)
+
+test/runtime/test_logits_processor.py:654: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+python/tokenspeed/runtime/layers/logits_processor.py:1079: in _get_logits
+    and not torch.cuda.is_current_stream_capturing()
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch/cuda/graphs.py:52: in is_current_stream_capturing
+    return _cuda_isCurrentStreamCapturing()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+obj = <class 'torch._utils._cuda_isCurrentStreamCapturing'>, args = ()
+kwargs = {}, class_name = '_cuda_isCurrentStreamCapturing'
+
+    def err_fn(obj, *args, **kwargs):
+        if is_init:
+            class_name = obj.__class__.__name__
+        else:
+            class_name = obj.__name__
+>       raise RuntimeError(f"Tried to instantiate dummy base class {class_name}")
+E       RuntimeError: Tried to instantiate dummy base class _cuda_isCurrentStreamCapturing
+
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch/_utils.py:996: RuntimeError
+=============================== warnings summary ===============================
+../../../opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58
+../../../opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58
+  /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+    warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+
+../../../opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58
+../../../opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58
+  /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+    warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+
+../../../opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66
+  /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66: UserWarning: Permission mismatch: The owner of /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/lib/libop_plugin_atb.so does not match.
+    warnings.warn(f"Permission mismatch: The owner of {path} does not match.")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED test/runtime/test_logits_processor.py::test_tp_logits_custom_collectives_skip_host_spread_group_without_fabric
+FAILED test/runtime/test_logits_processor.py::test_get_logits_skips_gather_when_dist_argmax_active
+FAILED test/runtime/test_logits_processor.py::test_get_logits_softcap_disables_fused_argmax
+3 failed, 33 passed, 1 skipped, 5 warnings in 3.75s

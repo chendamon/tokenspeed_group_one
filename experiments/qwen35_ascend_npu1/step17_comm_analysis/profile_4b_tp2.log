@@ -1,0 +1,21 @@
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/_path_manager.py:66: UserWarning: Permission mismatch: The owner of /opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/lib/libop_plugin_atb.so does not match.
+  warnings.warn(f"Permission mismatch: The owner of {path} does not match.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0 owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+/opt/miniconda3/envs/aics/lib/python3.11/site-packages/torch_npu/utils/collect_env.py:58: UserWarning: Warning: The /usr/local/Ascend/cann-9.0.0/aarch64-linux/ascend_toolkit_install.info owner does not match the current owner.
+  warnings.warn(f"Warning: The {path} owner does not match the current owner.")
+Traceback (most recent call last):
+  File "/home/u2601112013/tokenspeed_group_one/experiments/qwen35_ascend_npu1/step17_comm_analysis/profile_4b_tp2.py", line 9, in <module>
+    from tokenspeed.runtime.distributed.comm_backend.hccl import HcclBackend
+  File "/home/u2601112013/tokenspeed_group_one/python/tokenspeed/runtime/distributed/__init__.py", line 23, in <module>
+    from tokenspeed.runtime.distributed.comm_manager import CommManager
+  File "/home/u2601112013/tokenspeed_group_one/python/tokenspeed/runtime/distributed/comm_manager.py", line 25, in <module>
+    from tokenspeed.runtime.distributed.comm_ops import (
+  File "/home/u2601112013/tokenspeed_group_one/python/tokenspeed/runtime/distributed/comm_ops.py", line 33, in <module>
+    from tokenspeed_kernel.ops.communication import (
+ModuleNotFoundError: No module named 'tokenspeed_kernel'
+[ERROR] 2026-10-28-07:51:25 (PID:833623, Device:-1, RankID:-1) ERR99999 UNKNOWN applicaiton exception

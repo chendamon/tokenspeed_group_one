@@ -1,0 +1,36 @@
+[
+  {
+    "case": 2,
+    "ids_equal_tp1_tp2": true,
+    "max_abs_logprob_diff_tp1_tp2": 0.04733473062515259,
+    "max_abs_logprob_diff_cpu_tp1": 0.07337111234664917,
+    "max_abs_logprob_diff_cpu_tp2": 0.06628632545471191,
+    "cpu_argmax_differences": [
+      {
+        "step": 10,
+        "engine_id": 271,
+        "cpu_id": 13,
+        "cpu_logprob": -0.7327309250831604,
+        "tp1_logprob": -0.6769056916236877,
+        "tp2_logprob": -0.6756339073181152
+      }
+    ]
+  },
+  {
+    "case": 3,
+    "ids_equal_tp1_tp2": true,
+    "max_abs_logprob_diff_tp1_tp2": 0.0771874189376831,
+    "max_abs_logprob_diff_cpu_tp1": 0.09859657287597656,
+    "max_abs_logprob_diff_cpu_tp2": 0.10743093490600586,
+    "cpu_argmax_differences": [
+      {
+        "step": 5,
+        "engine_id": 3437,
+        "cpu_id": 271,
+        "cpu_logprob": -1.724748969078064,
+        "tp1_logprob": -1.6261523962020874,
+        "tp2_logprob": -1.617318034172058
+      }
+    ]
+  }
+]

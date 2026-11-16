@@ -1073,7 +1073,12 @@ class LogitsProcessor(nn.Module):
             logits = self._logits_layout_executor.swap_batch_vocab(logits, plan)
 
         elif not dp_sampling and self.tp_size > 1 and not self.skip_all_gather:
-            if self.do_argmax and not require_full_vocab:
+            # Ascend uses the portable HCCL gather rather than CUDA-only kernels.
+            if (
+                self.do_argmax
+                and not require_full_vocab
+                and logits.device.type != "npu"
+            ):
                 if (
                     self._dist_argmax_state is self._LOGITS_DIST_ARGMAX_UNINITIALIZED
                     and not torch.cuda.is_current_stream_capturing()
@@ -1093,7 +1098,11 @@ class LogitsProcessor(nn.Module):
             # A private full-vocab result never uses the shared buffer either.
             state = (
                 self._all_gather_state
-                if logits.dtype == torch.bfloat16 and not require_full_vocab
+                if (
+                    logits.dtype == torch.bfloat16
+                    and not require_full_vocab
+                    and logits.device.type != "npu"
+                )
                 else None
             )
             if state is self._LOGITS_AG_STATE_UNINITIALIZED:

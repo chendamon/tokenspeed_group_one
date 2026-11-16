@@ -1,0 +1,79 @@
+{
+  "0.8B": {
+    "both_rank_logs": true,
+    "rank_pids": {
+      "0": [
+        3867836
+      ],
+      "1": [
+        3867837
+      ]
+    },
+    "cache_tokens_values": [
+      0
+    ],
+    "own_npu_processes_after_shutdown": [],
+    "sample_errors": 0,
+    "concurrency2_engine_seen": true
+  },
+  "4B": {
+    "both_rank_logs": true,
+    "rank_pids": {
+      "0": [
+        3870666
+      ],
+      "1": [
+        3870667
+      ]
+    },
+    "cache_tokens_values": [
+      0
+    ],
+    "own_npu_processes_after_shutdown": [],
+    "sample_errors": 0,
+    "concurrency2_engine_seen": true
+  },
+  "9B": {
+    "both_rank_logs": true,
+    "rank_pids": {
+      "0": [
+        3877464
+      ],
+      "1": [
+        3877465
+      ]
+    },
+    "cache_tokens_values": [
+      0
+    ],
+    "own_npu_processes_after_shutdown": [],
+    "sample_errors": 0,
+    "concurrency2_engine_seen": true
+  },
+  "27B": {
+    "both_rank_logs": true,
+    "rank_pids": {
+      "0": [
+        3885754
+      ],
+      "1": [
+        3885755
+      ]
+    },
+    "cache_tokens_values": [
+      0
+    ],
+    "own_npu_processes_after_shutdown": [],
+    "sample_errors": 0,
+    "concurrency2_engine_seen": true
+  },
+  "overall": {
+    "cells": 16,
+    "formal_requests": 120,
+    "warmup_requests": 48,
+    "all_64_output_tokens": true,
+    "all_64_content_chunks": true,
+    "all_concurrent_streams_overlap": true,
+    "all_5_measurement_rounds": true
+  }
+}

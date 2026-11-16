@@ -1,0 +1,21 @@
+{
+  "wall_time": 1793171554.3500428,
+  "monotonic": 2161796.12241971,
+  "phase": "startup",
+  "devices": {
+    "0": {
+      "physical_id": 2,
+      "total_used_mb": 15863,
+      "total_mb": 65536,
+      "experiment_processes": [],
+      "experiment_process_memory_mb": 0
+    },
+    "1": {
+      "physical_id": 3,
+      "total_used_mb": 15266,
+      "total_mb": 65536,
+      "experiment_processes": [],
+      "experiment_process_memory_mb": 0
+    }
+  }
+}

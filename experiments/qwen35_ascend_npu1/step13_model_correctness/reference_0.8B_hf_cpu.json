@@ -1,0 +1,98 @@
+[
+  {
+    "prompt": "The capital of France is",
+    "new_token_ids": [
+      11751,
+      13,
+      198,
+      760,
+      6511,
+      314,
+      9338,
+      369,
+      11751,
+      13,
+      198,
+      760,
+      6511,
+      314,
+      9338,
+      369
+    ],
+    "text": " Paris.\nThe capital of France is Paris.\nThe capital of France is",
+    "tp2_text": " Paris.\nThe capital of France is Paris.\nThe capital of France is",
+    "match": true
+  },
+  {
+    "prompt": "Compute 2 + 3 =",
+    "new_token_ids": [
+      220,
+      20,
+      13,
+      198,
+      44712,
+      220,
+      17,
+      478,
+      220,
+      18,
+      283,
+      220,
+      20,
+      13,
+      198,
+      44712
+    ],
+    "text": " 5.\nCompute 2 + 3 = 5.\nCompute",
+    "tp2_text": " 5.\nCompute 2 + 3 = 5.\nCompute",
+    "match": true
+  },
+  {
+    "prompt": "The following numbers are listed in order: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79. The next number is",
+    "new_token_ids": [
+      220,
+      23,
+      15,
+      13,
+      3437,
+      369,
+      279,
+      1727,
+      1324,
+      303,
+      279,
+      8240,
+      30,
+      271,
+      1206,
+      1423
+    ],
+    "text": " 80. What is the next number in the sequence?\n\nTo find",
+    "tp2_text": " 80. What is the next number in the sequence?\n\nTo find",
+    "match": true
+  },
+  {
+    "prompt": "The capital of France is",
+    "new_token_ids": [
+      11751,
+      13,
+      198,
+      760,
+      6511,
+      314,
+      9338,
+      369,
+      11751,
+      13,
+      198,
+      760,
+      6511,
+      314,
+      9338,
+      369
+    ],
+    "text": " Paris.\nThe capital of France is Paris.\nThe capital of France is",
+    "tp2_text": " Paris.\nThe capital of France is Paris.\nThe capital of France is",
+    "match": true
+  }
+]

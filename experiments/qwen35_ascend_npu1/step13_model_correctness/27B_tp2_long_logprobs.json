@@ -1,0 +1,22 @@
+{
+  "id": "cmpl-B8ojcy8lUs42RkzqdFaih4EI-01a1810f-fc75-754d-a6cd-58de04912013",
+  "object": "text_completion",
+  "created": 1793166670,
+  "model": "qwen35-27B",
+  "choices": [
+    {
+      "text": " What",
+      "index": 0,
+      "finish_reason": "length"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 326,
+    "completion_tokens": 1,
+    "total_tokens": 327,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    }
+  },
+  "system_fingerprint": "default"
+}
